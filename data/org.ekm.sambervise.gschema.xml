@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.ekm.sambervise" path="/org/ekm/sambervise/">
+    <key name="last-host" type="s">
+      <default>''</default>
+      <summary>Last used DC hostname</summary>
+    </key>
+    <key name="last-port" type="i">
+      <default>389</default>
+      <summary>Last used LDAP port</summary>
+    </key>
+    <key name="last-base-dn" type="s">
+      <default>''</default>
+      <summary>Last used base DN</summary>
+    </key>
+    <key name="last-bind-dn" type="s">
+      <default>''</default>
+      <summary>Last used bind DN / UPN</summary>
+    </key>
+    <key name="use-tls" type="b">
+      <default>false</default>
+      <summary>Use STARTTLS</summary>
+    </key>
+    <key name="use-ldaps" type="b">
+      <default>false</default>
+      <summary>Use LDAPS (ldaps:// URI)</summary>
+    </key>
+    <key name="skip-cert-verify" type="b">
+      <default>false</default>
+      <summary>Skip TLS certificate verification</summary>
+    </key>
+  </schema>
+</schemalist>

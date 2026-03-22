@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/org/ekm/sambervise">
+    <file>ui/window.ui</file>
+    <file>ui/connect-dialog.ui</file>
+  </gresource>
+</gresources>

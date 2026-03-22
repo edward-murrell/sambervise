@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <object class="GtkWindow" id="dialog">
+    <property name="title">Add Connection</property>
+    <property name="modal">true</property>
+    <property name="resizable">false</property>
+    <property name="default-width">440</property>
+    <child>
+      <object class="GtkBox">
+        <property name="orientation">vertical</property>
+        <child>
+          <object class="AdwHeaderBar">
+            <property name="show-end-title-buttons">false</property>
+            <child type="start">
+              <object class="GtkButton" id="cancel_btn">
+                <property name="label">Cancel</property>
+              </object>
+            </child>
+            <child type="end">
+              <object class="GtkButton" id="connect_btn">
+                <property name="label">Connect</property>
+                <style>
+                  <class name="suggested-action"/>
+                </style>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkBox">
+            <property name="orientation">vertical</property>
+            <property name="spacing">14</property>
+            <property name="margin-top">16</property>
+            <property name="margin-bottom">16</property>
+            <property name="margin-start">16</property>
+            <property name="margin-end">16</property>
+
+            <!-- Profile name -->
+            <child>
+              <object class="GtkBox">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">12</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label">Name</property>
+                    <property name="xalign">1</property>
+                    <property name="width-chars">12</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="name_entry">
+                    <property name="hexpand">true</property>
+                    <property name="placeholder-text">My Domain Controller</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <child><object class="GtkSeparator"/></child>
+
+            <!-- Domain + Discover -->
+            <child>
+              <object class="GtkBox">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">12</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label">Domain</property>
+                    <property name="xalign">1</property>
+                    <property name="width-chars">12</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="domain_entry">
+                    <property name="hexpand">true</property>
+                    <property name="placeholder-text">example.com</property>
+                    <property name="activates-default">false</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton" id="discover_btn">
+                    <property name="label">Discover</property>
+                    <property name="tooltip-text">Look up domain controllers via DNS SRV records</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <!-- DC list (hidden until discovery runs) -->
+            <child>
+              <object class="GtkScrolledWindow" id="dc_scroll">
+                <property name="visible">false</property>
+                <property name="hscrollbar-policy">never</property>
+                <property name="max-content-height">120</property>
+                <property name="propagate-natural-height">true</property>
+                <child>
+                  <object class="GtkListBox" id="dc_list">
+                    <property name="selection-mode">single</property>
+                    <style>
+                      <class name="boxed-list"/>
+                    </style>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <!-- Host + Port -->
+            <child>
+              <object class="GtkBox">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">12</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label">Host</property>
+                    <property name="xalign">1</property>
+                    <property name="width-chars">12</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="host_entry">
+                    <property name="hexpand">true</property>
+                    <property name="placeholder-text">dc1.example.com</property>
+                    <property name="activates-default">true</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkSpinButton" id="port_spin">
+                    <property name="width-chars">6</property>
+                    <property name="adjustment">
+                      <object class="GtkAdjustment">
+                        <property name="value">389</property>
+                        <property name="lower">1</property>
+                        <property name="upper">65535</property>
+                        <property name="step-increment">1</property>
+                      </object>
+                    </property>
+                    <property name="numeric">true</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <!-- Base DN -->
+            <child>
+              <object class="GtkBox">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">12</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label">Base DN</property>
+                    <property name="xalign">1</property>
+                    <property name="width-chars">12</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkEntry" id="base_dn_entry">
+                    <property name="hexpand">true</property>
+                    <property name="placeholder-text">DC=example,DC=com</property>
+                    <property name="activates-default">true</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <child><object class="GtkSeparator"/></child>
+
+            <!-- Authentication type -->
+            <child>
+              <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <child>
+                  <object class="GtkLabel">
+                    <property name="label">Authentication</property>
+                    <property name="xalign">0</property>
+                    <style><class name="heading"/></style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="krb_radio">
+                    <property name="label">Kerberos (use existing ticket)</property>
+                    <property name="active">true</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="simple_radio">
+                    <property name="label">Simple (username + password)</property>
+                    <property name="group">krb_radio</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <!-- Credentials (shown only for simple auth) -->
+            <child>
+              <object class="GtkBox" id="creds_box">
+                <property name="orientation">vertical</property>
+                <property name="spacing">8</property>
+                <property name="visible">false</property>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label">Bind DN / UPN</property>
+                        <property name="xalign">1</property>
+                        <property name="width-chars">12</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkEntry" id="bind_dn_entry">
+                        <property name="hexpand">true</property>
+                        <property name="placeholder-text">Administrator@EXAMPLE.COM</property>
+                        <property name="activates-default">true</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">horizontal</property>
+                    <property name="spacing">12</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label">Password</property>
+                        <property name="xalign">1</property>
+                        <property name="width-chars">12</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkEntry" id="password_entry">
+                        <property name="hexpand">true</property>
+                        <property name="visibility">false</property>
+                        <property name="activates-default">true</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <child><object class="GtkSeparator"/></child>
+
+            <!-- TLS options -->
+            <child>
+              <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">4</property>
+                <child>
+                  <object class="GtkCheckButton" id="use_tls_check">
+                    <property name="label">Use STARTTLS</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="use_ldaps_check">
+                    <property name="label">Use LDAPS (port 636)</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="skip_cert_check">
+                    <property name="label">Skip certificate verification</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <!-- Error label -->
+            <child>
+              <object class="GtkLabel" id="error_label">
+                <property name="visible">false</property>
+                <property name="wrap">true</property>
+                <property name="xalign">0</property>
+                <style><class name="error"/></style>
+              </object>
+            </child>
+
+          </object>
+        </child>
+      </object>
+    </child>
+  </object>
+</interface>

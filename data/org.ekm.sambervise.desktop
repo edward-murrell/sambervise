@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Sambervise
+Comment=Administer Samba 4 Active Directory Domain Controllers
+Exec=sambervise
+Icon=network-server
+Terminal=false
+Type=Application
+Categories=System;Network;
+Keywords=samba;ldap;active directory;domain controller;

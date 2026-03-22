@@ -9,10 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Technology Stack
 
 - **Language**: C (C11)
-- **GUI**: GTK 4 + libadwaita
+- **GUI**: GTK 4 + libadwaita 1.x
 - **Build system**: Meson + ninja
-- **DC interface**: LDAP/LDAPS via `libldap` (OpenLDAP client) with GSSAPI/Kerberos authentication
-- **DNS management**: AD-integrated DNS zones via LDAP (stored in the domain partition)
+- **DC interface**: LDAP/LDAPS via `libldap` (OpenLDAP client) with GSSAPI/Kerberos or simple-bind authentication
+- **DNS discovery**: GIO `GResolver` querying `_ldap._tcp.dc._msdcs.<domain>` SRV records
+- **Connection profiles**: GKeyFile stored at `~/.config/sambervise/connections.ini`
 - **Testing**: GLib test framework (`g_test_*`)
 
 ## Architecture
@@ -24,33 +25,47 @@ src/
   ui/         # GTK windows, dialogs, widgets (View layer)
   backend/    # Remote DC interaction — GLib/GIO + libldap only, no GTK
   model/      # Plain C structs + GObject types for data (no GTK, no I/O)
-  main.c      # Entry point; creates the AdwApplication and runs it
-  app.c/.h    # AdwApplication subclass; top-level wiring
+  main.c
+  sbv-app.c/.h    # AdwApplication subclass; loads profiles, creates window
+  sbv-error.h/.c  # SBV_ERROR GQuark + SbvError enum
 data/
-  ui/         # .blp (GTK Blueprint) or .ui XML files
-  icons/
+  ui/         # GtkBuilder XML files (loaded into GResource bundle)
   org.ekm.sambervise.gschema.xml
   org.ekm.sambervise.desktop
+  sambervise.gresource.xml
 tests/
-  test_users.c
-  test_groups.c
-  ...
 ```
 
-### Backend modules (planned)
+### Backend modules
 
-- `backend/connection.c` — LDAP connection lifecycle: connect, GSSAPI/Kerberos bind, rebind, disconnect; holds the `LDAP *` handle and the domain's base DN
-- `backend/users.c` — user account LDAP operations (search, create, modify, delete, enable/disable, password reset)
-- `backend/groups.c` — group LDAP operations; member enumeration and modification
-- `backend/ous.c` — Organizational Unit tree: list, create, move, delete
-- `backend/dns.c` — read/write DNS records stored in `DC=DomainDnsZones` and `DC=ForestDnsZones` partitions via LDAP
-- `backend/domain.c` — read domain metadata: functional level, PDC emulator, site topology
+- `backend/sbv-connection.c` — LDAP connection lifecycle; holds `LDAP*` under a `GMutex`; exposes `acquire_ldap`/`release_ldap` for thread-safe use by other backends
+- `backend/sbv-dns.c` — async DNS SRV discovery via `GResolver`; returns a `GListStore<SbvDcTarget>` (private GObject wrapper around `GSrvTarget`)
+- `backend/sbv-profiles.c` — load/save/upsert/remove `SbvProfile` objects using `GKeyFile`
+- `backend/sbv-users-backend.c` — user LDAP operations (list, enable/disable, password reset)
+- `backend/sbv-groups-backend.c` — group LDAP operations (list, add/remove members)
 
-### Connection and authentication
+### Model types
 
-The app maintains a `SbvConnection` GObject per server profile. Authentication uses GSSAPI so the user's existing Kerberos ticket (from `kinit` or a desktop SSO session) is used automatically if available. The UI offers a credential dialog for username/password as a fallback, which performs a simple LDAP bind.
+- `model/sbv-profile.c` — `SbvProfile` GObject; includes `SbvAuthType` enum (`SBV_AUTH_KERBEROS` / `SBV_AUTH_SIMPLE`)
+- `model/sbv-user.c` — `SbvUser` GObject
+- `model/sbv-group.c` — `SbvGroup` GObject
 
-Multiple server profiles (host, port, base DN) are stored in GSettings under the `org.ekm.sambervise` schema and selectable from a sidebar.
+### Authentication
+
+`SbvConnection` supports two auth modes set in `SbvProfile.auth_type`:
+
+- **Kerberos (GSSAPI)** — calls `ldap_sasl_interactive_bind_s(ld, NULL, "GSSAPI", ...)`. Uses the current Kerberos credential cache (`KRB5CCNAME`). The user must have run `kinit` beforehand. No compile-time dependency on `libsasl2-dev`; `libsasl2-modules-gssapi-mit` must be installed at runtime.
+- **Simple bind** — calls `ldap_sasl_bind_s` with `LDAP_SASL_SIMPLE` and the password. Suitable for plain LDAP; passwords over the wire require STARTTLS or LDAPS.
+
+The `SbvSaslInteract` struct is defined inline in `sbv-connection.c` to match the SASL2 ABI without requiring the `sasl/sasl.h` header.
+
+### DNS discovery
+
+`sbv_dns_discover_async()` queries `_ldap._tcp.dc._msdcs.<domain>` first (MS-DNS convention for AD DCs), falling back to `_ldap._tcp.<domain>`. Results are sorted by RFC 2782 priority/weight by `GResolver`. The connect dialog's "Discover" button populates a list of found DCs; clicking one fills in the Host and Port fields, and suggests a Base DN derived from the domain (e.g. `example.com` → `DC=example,DC=com`).
+
+### Connection profiles
+
+Profiles are persisted by `sbv-profiles.c` to `~/.config/sambervise/connections.ini` (a `GKeyFile`). Each section is a named profile. Passwords are never stored. The window sidebar always shows the profiles list; clicking a profile connects (Kerberos profiles connect immediately; simple-auth profiles prompt for a password via `SbvPasswordDialog`).
 
 ### Async pattern
 
@@ -61,42 +76,39 @@ void sbv_users_list_async  (SbvConnection *conn,
                              GCancellable *cancellable,
                              GAsyncReadyCallback callback,
                              gpointer user_data);
-GSList *sbv_users_list_finish (GAsyncResult *result, GError **error);
+GListStore *sbv_users_list_finish (SbvConnection *conn,
+                                   GAsyncResult *result,
+                                   GError **error);
 ```
-
-UI signal handlers call the `_async` variant; tests call a synchronous wrapper built on `g_main_context_iteration`.
 
 ### Error handling
 
-Backend functions set a `GError` with the domain `SBV_ERROR` (quark: `sbv-error-quark`). LDAP error codes are translated to human-readable messages at the backend boundary; the UI catches `GError` and surfaces it via `adw_message_dialog_new`.
+Backend functions set a `GError` with domain `SBV_ERROR`. LDAP error codes are translated to human-readable messages at the backend boundary; the UI surfaces them via `AdwToast` (non-fatal) or `GtkLabel` inside the relevant dialog.
 
 ### GObject usage
 
-Use the GObject type system for anything that needs property change notifications or signal emission (`SbvConnection`, `SbvApplication`, model types). Plain data containers that don't need signals can be simple C structs with `g_new`/`g_free`.
+Use the GObject type system for anything with property notifications or signals (`SbvConnection`, `SbvApp`, model types). Plain data containers that don't need signals use simple C structs with `g_new`/`g_free`.
 
 ## Build & Run
 
 ```bash
 # Install build dependencies (Debian/Ubuntu)
 sudo apt install build-essential meson ninja-build pkg-config \
-    libgtk-4-dev libadwaita-1-dev libldap-dev libsasl2-dev
+    libgtk-4-dev libadwaita-1-dev libldap-dev
 
-# Configure
+# Runtime dependency for Kerberos auth (usually already installed)
+sudo apt install libsasl2-modules-gssapi-mit
+
+# Configure and build
 meson setup builddir
-
-# Build
 ninja -C builddir
 
-# Run
-./builddir/sambervise
+# Run from the source tree (development)
+GSETTINGS_SCHEMA_DIR=builddir/data ./builddir/sambervise
 
-# Install
+# Install (handles schema compilation automatically)
 sudo ninja -C builddir install
 ```
-
-### Blueprint compilation
-
-If using GTK Blueprint (`.blp`) files, `blueprint-compiler` must be installed and is invoked automatically by Meson. Otherwise use hand-written `.ui` XML. UI files are compiled into a GResource bundle at build time — never loaded from disk at runtime.
 
 ## Testing
 
@@ -107,20 +119,22 @@ meson test -C builddir
 # Run a single test suite
 meson test -C builddir test_users
 
-# Run with verbose output
+# Verbose output
 meson test -C builddir --verbose
 
-# Run under valgrind
+# Under Valgrind
 meson test -C builddir --setup=valgrind
 ```
 
-Tests use `g_test_add_func` / `g_test_run`. LDAP calls are intercepted via a `connection_ops` vtable on `SbvConnection` that tests replace with a stub returning canned LDAP result data, so no live DC is required.
+Tests live in `tests/`. They use `g_test_add_func` / `g_test_run` and exercise the model layer only — no live DC or GTK display required. Backend tests requiring LDAP use a `connection_ops` vtable stub (to be wired when backend tests are added).
 
 ## Meson structure
 
 ```
 meson.build              # project(), dependency(), subdir() calls
-src/meson.build          # main executable; gresource_bundle()
-data/meson.build         # install desktop, icons; compile gschemas
-tests/meson.build        # one executable per test_*.c, registered with meson test
+src/meson.build          # main executable + GResource bundle compilation
+data/meson.build         # install desktop, icons; compile GSettings schemas
+tests/meson.build        # one executable per test_*.c
 ```
+
+UI files in `data/ui/` are compiled into a GResource bundle at build time and accessed at `/org/ekm/sambervise/ui/<name>.ui` — never loaded from disk at runtime.
