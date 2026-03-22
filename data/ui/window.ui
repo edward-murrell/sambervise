@@ -19,14 +19,17 @@
               </object>
             </child>
             <child>
-              <object class="GtkBox">
+              <object class="GtkPaned">
                 <property name="orientation">horizontal</property>
                 <property name="vexpand">true</property>
+                <property name="position">180</property>
+                <property name="shrink-start-child">false</property>
+                <property name="resize-start-child">false</property>
                 <!-- Left sidebar: always visible -->
-                <child>
+                <child type="start">
                   <object class="GtkBox" id="sidebar">
                     <property name="orientation">vertical</property>
-                    <property name="width-request">220</property>
+                    <property name="width-request">140</property>
                     <!-- Connections header row -->
                     <child>
                       <object class="GtkBox">
@@ -59,9 +62,8 @@
                     <!-- Profiles list -->
                     <child>
                       <object class="GtkScrolledWindow" id="profiles_scroll">
-                        <property name="vexpand">true</property>
                         <property name="hscrollbar-policy">never</property>
-                        <property name="max-content-height">300</property>
+                        <property name="max-content-height">240</property>
                         <property name="propagate-natural-height">true</property>
                         <child>
                           <object class="GtkListBox" id="profiles_list">
@@ -138,16 +140,16 @@
                         </child>
                       </object>
                     </child>
-                  </object>
-                </child>
-                <!-- Vertical separator -->
-                <child>
-                  <object class="GtkSeparator">
-                    <property name="orientation">vertical</property>
+                    <!-- Spacer pushes everything above to the top -->
+                    <child>
+                      <object class="GtkBox">
+                        <property name="vexpand">true</property>
+                      </object>
+                    </child>
                   </object>
                 </child>
                 <!-- Main content stack -->
-                <child>
+                <child type="end">
                   <object class="GtkStack" id="content_stack">
                     <property name="hexpand">true</property>
                     <property name="vexpand">true</property>

@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Language**: C (C11)
 - **GUI**: GTK 4 + libadwaita 1.x
-- **Build system**: Meson + ninja
+- **Build system**: CMake + ninja (or make)
 - **DC interface**: LDAP/LDAPS via `libldap` (OpenLDAP client) with GSSAPI/Kerberos or simple-bind authentication
 - **DNS discovery**: GIO `GResolver` querying `_ldap._tcp.dc._msdcs.<domain>` SRV records
 - **Connection profiles**: GKeyFile stored at `~/.config/sambervise/connections.ini`
@@ -93,48 +93,48 @@ Use the GObject type system for anything with property notifications or signals 
 
 ```bash
 # Install build dependencies (Debian/Ubuntu)
-sudo apt install build-essential meson ninja-build pkg-config \
+sudo apt install build-essential cmake ninja-build pkg-config \
     libgtk-4-dev libadwaita-1-dev libldap-dev
 
 # Runtime dependency for Kerberos auth (usually already installed)
 sudo apt install libsasl2-modules-gssapi-mit
 
 # Configure and build
-meson setup builddir
-ninja -C builddir
+cmake -B build -G Ninja
+cmake --build build
 
 # Run from the source tree (development)
-GSETTINGS_SCHEMA_DIR=builddir/data ./builddir/sambervise
+GSETTINGS_SCHEMA_DIR=build/data ./build/src/sambervise
 
 # Install (handles schema compilation automatically)
-sudo ninja -C builddir install
+sudo cmake --install build
 ```
 
 ## Testing
 
 ```bash
 # Run all tests
-meson test -C builddir
+ctest --test-dir build
 
-# Run a single test suite
-meson test -C builddir test_users
+# Run a single test
+ctest --test-dir build -R users
 
 # Verbose output
-meson test -C builddir --verbose
+ctest --test-dir build --output-on-failure
 
 # Under Valgrind
-meson test -C builddir --setup=valgrind
+ctest --test-dir build -T memcheck
 ```
 
 Tests live in `tests/`. They use `g_test_add_func` / `g_test_run` and exercise the model layer only — no live DC or GTK display required. Backend tests requiring LDAP use a `connection_ops` vtable stub (to be wired when backend tests are added).
 
-## Meson structure
+## CMake structure
 
 ```
-meson.build              # project(), dependency(), subdir() calls
-src/meson.build          # main executable + GResource bundle compilation
-data/meson.build         # install desktop, icons; compile GSettings schemas
-tests/meson.build        # one executable per test_*.c
+CMakeLists.txt           # project(), dependencies, subdirectories
+src/CMakeLists.txt       # main executable + GResource bundle compilation
+data/CMakeLists.txt      # install desktop, schema; compile GSettings schemas
+tests/CMakeLists.txt     # one executable per test_*.c
 ```
 
 UI files in `data/ui/` are compiled into a GResource bundle at build time and accessed at `/org/ekm/sambervise/ui/<name>.ui` — never loaded from disk at runtime.

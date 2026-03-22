@@ -27,7 +27,7 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
   const char *filter = "(objectClass=group)";
   const char *attrs[] = {
     "distinguishedName", "sAMAccountName", "cn",
-    "description", "member", NULL
+    "description", "groupType", "member", NULL
   };
 
   LDAPMessage *result = NULL;
@@ -64,6 +64,11 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
       GET_STR ("description",       sbv_group_set_description)
 
 #undef GET_STR
+
+      bv = ldap_get_values_len (ld, entry, "groupType");
+      if (bv && bv[0])
+        sbv_group_set_group_type (group, (gint32) strtol (bv[0]->bv_val, NULL, 10));
+      ldap_value_free_len (bv);
 
       /* member is a multi-value attribute; copy to GStrv */
       bv = ldap_get_values_len (ld, entry, "member");
