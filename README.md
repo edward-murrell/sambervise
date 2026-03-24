@@ -70,6 +70,24 @@ cmake --build build
 sudo cmake --install build
 ```
 
+## Building a Debian package
+
+After configuring and building, run CPack from the build directory:
+
+```bash
+cmake -B build -G Ninja
+cmake --build build
+cd build && cpack -G DEB
+```
+
+This produces `sambervise_0.1.0_amd64.deb` (name and architecture are determined automatically). Install it with:
+
+```bash
+sudo dpkg -i sambervise_0.1.0_amd64.deb
+```
+
+The package depends on `libgtk-4-1`, `libadwaita-1-0`, `libldap-2.5-0`, and `libsasl2-modules-gssapi-mit`. The GSettings schema cache is updated automatically via the package's postinst script.
+
 ## Kerberos authentication
 
 For connections using Kerberos, obtain a ticket before launching Sambervise:

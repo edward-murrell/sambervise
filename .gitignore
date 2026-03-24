@@ -1,0 +1,16 @@
+# CMake build directories
+/build/
+/build-*/
+
+# CLion / VSCode / Eclipse
+.idea/
+.vscode/
+*.cbp
+
+# Vim/Emacs swap files
+*.swp
+*.swo
+*~
+
+# Clangd
+.clangd/

@@ -23,11 +23,15 @@ install(FILES org.ekm.sambervise.desktop
     DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
 )
 
-# Recompile the system schema cache after installing
+# Recompile the system schema cache after a direct install.
+# Skip when DESTDIR is set (e.g. CPack staging) — the postinst script handles
+# that case on the target machine.
 install(CODE "
-    message(STATUS \"Compiling GSettings schemas\")
-    execute_process(
-        COMMAND ${GLIB_COMPILE_SCHEMAS}
-                \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas\"
-    )
+    if(\"\$ENV{DESTDIR}\" STREQUAL \"\")
+        message(STATUS \"Compiling GSettings schemas\")
+        execute_process(
+            COMMAND ${GLIB_COMPILE_SCHEMAS}
+                    \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas\"
+        )
+    endif()
 ")
