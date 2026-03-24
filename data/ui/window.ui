@@ -64,6 +64,7 @@
                       <object class="GtkScrolledWindow" id="profiles_scroll">
                         <property name="hscrollbar-policy">never</property>
                         <property name="max-content-height">240</property>
+                        <property name="width-request">180</property>
                         <property name="propagate-natural-height">true</property>
                         <child>
                           <object class="GtkListBox" id="profiles_list">

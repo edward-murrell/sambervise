@@ -23,11 +23,16 @@ struct _SbvGroupsPanel {
 
   /* Detail pane */
   GtkWidget     *detail_stack;   /* "none" | "detail" */
+  GtkWidget     *detail_dn;
   GtkWidget     *detail_name;
   GtkWidget     *detail_sam;
   GtkWidget     *detail_desc;
   GtkWidget     *detail_type;
   GtkWidget     *detail_scope;
+
+  /* RFC2307 / POSIX (read-only) */
+  GtkWidget     *rfc_gid_label;
+  GtkWidget     *rfc_member_uid_label;
   GtkWidget     *members_list;
   GtkWidget     *member_count_label;
   GtkWidget     *add_member_btn;
@@ -170,17 +175,35 @@ on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
 
   g_set_object (&self->selected_group, group);
 
+  const char *dn      = sbv_group_get_dn (group);
   const char *display = sbv_group_get_display_name (group);
   const char *sam     = sbv_group_get_sam (group);
   const char *desc    = sbv_group_get_description (group);
   gint32      gt      = sbv_group_get_group_type (group);
 
+  gtk_label_set_text (GTK_LABEL (self->detail_dn),   dn      ? dn      : "");
   gtk_label_set_text (GTK_LABEL (self->detail_name), display ? display : (sam ? sam : ""));
   gtk_label_set_text (GTK_LABEL (self->detail_sam),  sam  ? sam  : "");
   gtk_label_set_text (GTK_LABEL (self->detail_desc), desc ? desc : "");
   gtk_label_set_text (GTK_LABEL (self->detail_type),
                       (gt & GT_SECURITY) ? "Security" : "Distribution");
   gtk_label_set_text (GTK_LABEL (self->detail_scope), group_scope_string (gt));
+
+  /* RFC2307 / POSIX */
+  gint gid = sbv_group_get_gid_number (group);
+  char *gid_str = (gid >= 0) ? g_strdup_printf ("%d", gid) : g_strdup ("\xe2\x80\x94");
+  gtk_label_set_text (GTK_LABEL (self->rfc_gid_label), gid_str);
+  g_free (gid_str);
+
+  guint n_uid = sbv_group_get_member_uid_count (group);
+  if (n_uid > 0) {
+    const char * const *uids = sbv_group_get_member_uid (group);
+    char *joined = g_strjoinv (", ", (char **) uids);
+    gtk_label_set_text (GTK_LABEL (self->rfc_member_uid_label), joined);
+    g_free (joined);
+  } else {
+    gtk_label_set_text (GTK_LABEL (self->rfc_member_uid_label), "\xe2\x80\x94");
+  }
 
   populate_members (self, group);
 
@@ -739,6 +762,14 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
     gtk_widget_add_css_class (info_lbl, "heading");
     gtk_box_append (GTK_BOX (detail_box), info_lbl);
 
+    {
+      GtkWidget *dn_row = make_info_row ("DN", &self->detail_dn);
+      /* Make the DN value selectable and monospace for easy copying */
+      gtk_label_set_selectable (GTK_LABEL (self->detail_dn), TRUE);
+      gtk_label_set_ellipsize  (GTK_LABEL (self->detail_dn), PANGO_ELLIPSIZE_MIDDLE);
+      gtk_widget_add_css_class (self->detail_dn, "monospace");
+      gtk_box_append (GTK_BOX (detail_box), dn_row);
+    }
     gtk_box_append (GTK_BOX (detail_box),
                     make_info_row ("Name",        &self->detail_name));
     gtk_box_append (GTK_BOX (detail_box),
@@ -749,6 +780,29 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
                     make_info_row ("Type",        &self->detail_type));
     gtk_box_append (GTK_BOX (detail_box),
                     make_info_row ("Scope",       &self->detail_scope));
+
+    /* ── RFC2307 / POSIX ── */
+    gtk_box_append (GTK_BOX (detail_box),
+                    gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
+
+    GtkWidget *rfc_lbl = gtk_label_new ("Unix Attributes (RFC2307)");
+    gtk_label_set_xalign (GTK_LABEL (rfc_lbl), 0);
+    gtk_widget_add_css_class (rfc_lbl, "heading");
+    gtk_box_append (GTK_BOX (detail_box), rfc_lbl);
+
+    {
+      GtkWidget *row = make_info_row ("GID Number", &self->rfc_gid_label);
+      gtk_widget_add_css_class (self->rfc_gid_label, "monospace");
+      gtk_label_set_text (GTK_LABEL (self->rfc_gid_label), "\xe2\x80\x94");
+      gtk_box_append (GTK_BOX (detail_box), row);
+    }
+    {
+      GtkWidget *row = make_info_row ("Member UIDs", &self->rfc_member_uid_label);
+      gtk_label_set_ellipsize (GTK_LABEL (self->rfc_member_uid_label),
+                                PANGO_ELLIPSIZE_END);
+      gtk_label_set_text (GTK_LABEL (self->rfc_member_uid_label), "\xe2\x80\x94");
+      gtk_box_append (GTK_BOX (detail_box), row);
+    }
 
     gtk_box_append (GTK_BOX (detail_box),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));

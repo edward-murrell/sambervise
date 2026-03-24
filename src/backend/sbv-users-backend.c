@@ -36,6 +36,8 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
     "cn", "displayName", "givenName", "sn",
     "mail", "description", "userAccountControl",
     "pwdLastSet", "accountExpires",
+    /* RFC2307 / POSIX */
+    "uidNumber", "gidNumber", "loginShell", "homeDirectory", "gecos",
     NULL
   };
 
@@ -98,6 +100,28 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
         sbv_user_set_account_expires (user, (expires == 0) ? G_MAXINT64 : expires);
       }
       ldap_value_free_len (bv);
+
+      /* RFC2307 / POSIX attributes */
+      bv = ldap_get_values_len (ld, entry, "uidNumber");
+      if (bv && bv[0])
+        sbv_user_set_uid_number (user, (gint) strtol (bv[0]->bv_val, NULL, 10));
+      ldap_value_free_len (bv);
+
+      bv = ldap_get_values_len (ld, entry, "gidNumber");
+      if (bv && bv[0])
+        sbv_user_set_gid_number (user, (gint) strtol (bv[0]->bv_val, NULL, 10));
+      ldap_value_free_len (bv);
+
+#define GET_STR_U(attr, setter) \
+      bv = ldap_get_values_len (ld, entry, (attr)); \
+      if (bv && bv[0]) setter (user, bv[0]->bv_val); \
+      ldap_value_free_len (bv);
+
+      GET_STR_U ("loginShell",     sbv_user_set_login_shell)
+      GET_STR_U ("homeDirectory",  sbv_user_set_home_dir)
+      GET_STR_U ("gecos",          sbv_user_set_gecos)
+
+#undef GET_STR_U
 
       g_list_store_append (store, user);
       g_object_unref (user);

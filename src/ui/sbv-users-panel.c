@@ -33,8 +33,16 @@ struct _SbvUsersPanel {
   GtkWidget     *email_entry;
 
   /* Account */
+  GtkWidget     *dn_label;
   GtkWidget     *sam_label;
   GtkWidget     *enabled_check;
+
+  /* RFC2307 / POSIX (read-only) */
+  GtkWidget     *rfc_uid_label;
+  GtkWidget     *rfc_gid_label;
+  GtkWidget     *rfc_shell_label;
+  GtkWidget     *rfc_home_label;
+  GtkWidget     *rfc_gecos_label;
 
   /* Save attributes */
   GtkWidget     *save_btn;
@@ -187,6 +195,8 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
 
 #undef SET_ENTRY
 
+  gtk_label_set_text (GTK_LABEL (self->dn_label),
+                      sbv_user_get_dn (user) ? sbv_user_get_dn (user) : "");
   gtk_label_set_text (GTK_LABEL (self->sam_label),
                       sbv_user_get_sam (user) ? sbv_user_get_sam (user) : "");
   gtk_check_button_set_active (GTK_CHECK_BUTTON (self->enabled_check),
@@ -219,6 +229,23 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
     gtk_editable_set_text (GTK_EDITABLE (self->expires_date_entry), "");
   }
   gtk_widget_set_sensitive (self->expires_date_entry, !acct_never);
+
+  /* RFC2307 / POSIX */
+  gint uid = sbv_user_get_uid_number (user);
+  gint gid = sbv_user_get_gid_number (user);
+  char *uid_str = (uid >= 0) ? g_strdup_printf ("%d", uid) : g_strdup ("\xe2\x80\x94");
+  char *gid_str = (gid >= 0) ? g_strdup_printf ("%d", gid) : g_strdup ("\xe2\x80\x94");
+  gtk_label_set_text (GTK_LABEL (self->rfc_uid_label),   uid_str);
+  gtk_label_set_text (GTK_LABEL (self->rfc_gid_label),   gid_str);
+  g_free (uid_str);
+  g_free (gid_str);
+
+  const char *shell = sbv_user_get_login_shell (user);
+  const char *home  = sbv_user_get_home_dir    (user);
+  const char *gecos = sbv_user_get_gecos       (user);
+  gtk_label_set_text (GTK_LABEL (self->rfc_shell_label), shell ? shell : "\xe2\x80\x94");
+  gtk_label_set_text (GTK_LABEL (self->rfc_home_label),  home  ? home  : "\xe2\x80\x94");
+  gtk_label_set_text (GTK_LABEL (self->rfc_gecos_label), gecos ? gecos : "\xe2\x80\x94");
 
   /* Clear error labels */
   gtk_label_set_text (GTK_LABEL (self->save_error),   "");
@@ -751,6 +778,14 @@ sbv_users_panel_init (SbvUsersPanel *self)
     /* ── Account ── */
     gtk_box_append (GTK_BOX (form), make_section_label ("Account"));
 
+    self->dn_label = gtk_label_new ("");
+    gtk_label_set_xalign (GTK_LABEL (self->dn_label), 0);
+    gtk_label_set_ellipsize (GTK_LABEL (self->dn_label), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_label_set_selectable (GTK_LABEL (self->dn_label), TRUE);
+    gtk_widget_add_css_class (self->dn_label, "monospace");
+    gtk_box_append (GTK_BOX (form),
+                    make_field_row ("DN", self->dn_label));
+
     self->sam_label = gtk_label_new ("");
     gtk_label_set_xalign (GTK_LABEL (self->sam_label), 0);
     gtk_widget_add_css_class (self->sam_label, "monospace");
@@ -864,6 +899,41 @@ sbv_users_panel_init (SbvUsersPanel *self)
     gtk_widget_set_visible (self->policy_error, FALSE);
     gtk_box_append (GTK_BOX (policy_btn_box), self->policy_error);
     gtk_box_append (GTK_BOX (form), policy_btn_box);
+
+    /* ── Unix Attributes (RFC2307) ── */
+    gtk_box_append (GTK_BOX (form),
+                    gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append (GTK_BOX (form), make_section_label ("Unix Attributes (RFC2307)"));
+
+    self->rfc_uid_label = gtk_label_new ("\xe2\x80\x94");
+    gtk_label_set_xalign (GTK_LABEL (self->rfc_uid_label), 0);
+    gtk_widget_add_css_class (self->rfc_uid_label, "monospace");
+    gtk_box_append (GTK_BOX (form),
+                    make_field_row ("UID Number", self->rfc_uid_label));
+
+    self->rfc_gid_label = gtk_label_new ("\xe2\x80\x94");
+    gtk_label_set_xalign (GTK_LABEL (self->rfc_gid_label), 0);
+    gtk_widget_add_css_class (self->rfc_gid_label, "monospace");
+    gtk_box_append (GTK_BOX (form),
+                    make_field_row ("GID Number", self->rfc_gid_label));
+
+    self->rfc_shell_label = gtk_label_new ("\xe2\x80\x94");
+    gtk_label_set_xalign (GTK_LABEL (self->rfc_shell_label), 0);
+    gtk_widget_add_css_class (self->rfc_shell_label, "monospace");
+    gtk_box_append (GTK_BOX (form),
+                    make_field_row ("Login Shell", self->rfc_shell_label));
+
+    self->rfc_home_label = gtk_label_new ("\xe2\x80\x94");
+    gtk_label_set_xalign (GTK_LABEL (self->rfc_home_label), 0);
+    gtk_label_set_ellipsize (GTK_LABEL (self->rfc_home_label), PANGO_ELLIPSIZE_MIDDLE);
+    gtk_widget_add_css_class (self->rfc_home_label, "monospace");
+    gtk_box_append (GTK_BOX (form),
+                    make_field_row ("Home Directory", self->rfc_home_label));
+
+    self->rfc_gecos_label = gtk_label_new ("\xe2\x80\x94");
+    gtk_label_set_xalign (GTK_LABEL (self->rfc_gecos_label), 0);
+    gtk_box_append (GTK_BOX (form),
+                    make_field_row ("GECOS", self->rfc_gecos_label));
 
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (detail_scroll), form);
     gtk_stack_add_named (GTK_STACK (self->detail_stack), detail_scroll, "detail");

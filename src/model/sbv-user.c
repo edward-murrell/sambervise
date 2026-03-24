@@ -14,6 +14,12 @@ struct _SbvUser {
   gint64   uac;
   gint64   pwd_last_set;
   gint64   account_expires;
+  /* RFC2307 / POSIX */
+  gint     uid_number;   /* -1 = not present */
+  gint     gid_number;   /* -1 = not present */
+  char    *login_shell;
+  char    *home_dir;
+  char    *gecos;
 };
 
 G_DEFINE_TYPE (SbvUser, sbv_user, G_TYPE_OBJECT)
@@ -30,6 +36,9 @@ sbv_user_finalize (GObject *object)
   g_free (self->sn);
   g_free (self->email);
   g_free (self->description);
+  g_free (self->login_shell);
+  g_free (self->home_dir);
+  g_free (self->gecos);
   G_OBJECT_CLASS (sbv_user_parent_class)->finalize (object);
 }
 
@@ -40,6 +49,8 @@ sbv_user_init (SbvUser *self)
 {
   self->enabled         = TRUE;
   self->account_expires = G_MAXINT64;
+  self->uid_number      = -1;
+  self->gid_number      = -1;
 }
 
 SbvUser *
@@ -73,3 +84,14 @@ void sbv_user_set_enabled         (SbvUser *self, gboolean    v) { self->enabled
 void sbv_user_set_uac             (SbvUser *self, gint64      v) { self->uac             = v; }
 void sbv_user_set_pwd_last_set    (SbvUser *self, gint64      v) { self->pwd_last_set    = v; }
 void sbv_user_set_account_expires (SbvUser *self, gint64      v) { self->account_expires = v; }
+void sbv_user_set_uid_number      (SbvUser *self, gint        v) { self->uid_number      = v; }
+void sbv_user_set_gid_number      (SbvUser *self, gint        v) { self->gid_number      = v; }
+void sbv_user_set_login_shell     (SbvUser *self, const char *v) { g_free (self->login_shell); self->login_shell = g_strdup (v); }
+void sbv_user_set_home_dir        (SbvUser *self, const char *v) { g_free (self->home_dir);    self->home_dir    = g_strdup (v); }
+void sbv_user_set_gecos           (SbvUser *self, const char *v) { g_free (self->gecos);       self->gecos       = g_strdup (v); }
+
+gint        sbv_user_get_uid_number  (SbvUser *self) { return self->uid_number; }
+gint        sbv_user_get_gid_number  (SbvUser *self) { return self->gid_number; }
+const char *sbv_user_get_login_shell (SbvUser *self) { return self->login_shell; }
+const char *sbv_user_get_home_dir    (SbvUser *self) { return self->home_dir; }
+const char *sbv_user_get_gecos       (SbvUser *self) { return self->gecos; }

@@ -21,6 +21,12 @@ gboolean    sbv_user_get_enabled         (SbvUser *self);
 gint64      sbv_user_get_uac             (SbvUser *self); /* raw userAccountControl */
 gint64      sbv_user_get_pwd_last_set    (SbvUser *self); /* 0 = must change at next logon */
 gint64      sbv_user_get_account_expires (SbvUser *self); /* Windows FILETIME; G_MAXINT64 = never */
+/* RFC2307 / POSIX attributes; -1 means attribute not present */
+gint        sbv_user_get_uid_number      (SbvUser *self);
+gint        sbv_user_get_gid_number      (SbvUser *self);
+const char *sbv_user_get_login_shell     (SbvUser *self);
+const char *sbv_user_get_home_dir        (SbvUser *self);
+const char *sbv_user_get_gecos           (SbvUser *self);
 
 void        sbv_user_set_dn              (SbvUser *self, const char *dn);
 void        sbv_user_set_sam             (SbvUser *self, const char *sam);
@@ -34,5 +40,10 @@ void        sbv_user_set_enabled         (SbvUser *self, gboolean enabled);
 void        sbv_user_set_uac             (SbvUser *self, gint64 uac);
 void        sbv_user_set_pwd_last_set    (SbvUser *self, gint64 val);
 void        sbv_user_set_account_expires (SbvUser *self, gint64 val);
+void        sbv_user_set_uid_number      (SbvUser *self, gint uid);
+void        sbv_user_set_gid_number      (SbvUser *self, gint gid);
+void        sbv_user_set_login_shell     (SbvUser *self, const char *shell);
+void        sbv_user_set_home_dir        (SbvUser *self, const char *home);
+void        sbv_user_set_gecos           (SbvUser *self, const char *gecos);
 
 G_END_DECLS

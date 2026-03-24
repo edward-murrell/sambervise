@@ -27,7 +27,10 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
   const char *filter = "(objectClass=group)";
   const char *attrs[] = {
     "distinguishedName", "sAMAccountName", "cn",
-    "description", "groupType", "member", NULL
+    "description", "groupType", "member",
+    /* RFC2307 / POSIX */
+    "gidNumber", "memberUid",
+    NULL
   };
 
   LDAPMessage *result = NULL;
@@ -78,6 +81,22 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
         for (int i = 0; i < count; i++)
           members[i] = g_strndup (bv[i]->bv_val, bv[i]->bv_len);
         sbv_group_set_members (group, members);
+        ldap_value_free_len (bv);
+      }
+
+      /* RFC2307 / POSIX attributes */
+      bv = ldap_get_values_len (ld, entry, "gidNumber");
+      if (bv && bv[0])
+        sbv_group_set_gid_number (group, (gint) strtol (bv[0]->bv_val, NULL, 10));
+      ldap_value_free_len (bv);
+
+      bv = ldap_get_values_len (ld, entry, "memberUid");
+      if (bv) {
+        int count = ldap_count_values_len (bv);
+        char **uids = g_new0 (char *, count + 1);
+        for (int i = 0; i < count; i++)
+          uids[i] = g_strndup (bv[i]->bv_val, bv[i]->bv_len);
+        sbv_group_set_member_uid (group, uids);
         ldap_value_free_len (bv);
       }
 

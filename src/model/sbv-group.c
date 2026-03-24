@@ -7,7 +7,10 @@ struct _SbvGroup {
   char    *display_name;
   char    *description;
   gint32   group_type;
-  char   **members; /* GStrv, owned */
+  char   **members;    /* GStrv of member DNs, owned */
+  /* RFC2307 / POSIX */
+  gint     gid_number; /* -1 = not present */
+  char   **member_uid; /* GStrv of Unix usernames, owned */
 };
 
 G_DEFINE_TYPE (SbvGroup, sbv_group, G_TYPE_OBJECT)
@@ -21,11 +24,12 @@ sbv_group_finalize (GObject *object)
   g_free (self->display_name);
   g_free (self->description);
   g_strfreev (self->members);
+  g_strfreev (self->member_uid);
   G_OBJECT_CLASS (sbv_group_parent_class)->finalize (object);
 }
 
 static void sbv_group_class_init (SbvGroupClass *klass) { G_OBJECT_CLASS (klass)->finalize = sbv_group_finalize; }
-static void sbv_group_init       (SbvGroup *self)        { (void) self; }
+static void sbv_group_init       (SbvGroup *self)        { self->gid_number = -1; }
 
 SbvGroup *
 sbv_group_new (void)
@@ -64,4 +68,27 @@ sbv_group_set_members (SbvGroup *self, char **members)
 {
   g_strfreev (self->members);
   self->members = members;
+}
+
+gint sbv_group_get_gid_number (SbvGroup *self) { return self->gid_number; }
+void sbv_group_set_gid_number (SbvGroup *self, gint gid) { self->gid_number = gid; }
+
+const char * const *
+sbv_group_get_member_uid (SbvGroup *self)
+{
+  return (const char * const *) self->member_uid;
+}
+
+guint
+sbv_group_get_member_uid_count (SbvGroup *self)
+{
+  if (!self->member_uid) return 0;
+  return g_strv_length (self->member_uid);
+}
+
+void
+sbv_group_set_member_uid (SbvGroup *self, char **uids)
+{
+  g_strfreev (self->member_uid);
+  self->member_uid = uids;
 }
