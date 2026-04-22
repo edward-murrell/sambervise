@@ -123,6 +123,34 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
 
 #undef GET_STR_U
 
+      /* Collect all raw LDAP attributes for display */
+      {
+        GHashTable *raw = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                  g_free, (GDestroyNotify) g_strfreev);
+        BerElement *ber2 = NULL;
+        char *aname;
+        for (aname = ldap_first_attribute (ld, entry, &ber2);
+             aname != NULL;
+             aname = ldap_next_attribute (ld, entry, ber2))
+        {
+          struct berval **av = ldap_get_values_len (ld, entry, aname);
+          if (av) {
+            int cnt = ldap_count_values_len (av);
+            char **sv = g_new0 (char *, cnt + 1);
+            for (int j = 0; j < cnt; j++) {
+              sv[j] = g_utf8_validate (av[j]->bv_val, (gssize) av[j]->bv_len, NULL)
+                ? g_strndup (av[j]->bv_val, av[j]->bv_len)
+                : g_strdup_printf ("<binary %zu bytes>", av[j]->bv_len);
+            }
+            g_hash_table_insert (raw, g_strdup (aname), sv);
+            ldap_value_free_len (av);
+          }
+          ldap_memfree (aname);
+        }
+        if (ber2) ber_free (ber2, 0);
+        sbv_user_set_ldap_attrs (user, raw);
+      }
+
       g_list_store_append (store, user);
       g_object_unref (user);
     }
@@ -582,6 +610,133 @@ gboolean
 sbv_users_set_password_flags_finish (SbvConnection *conn,
                                       GAsyncResult  *result,
                                       GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ── Set Unix / RFC2307 attributes ─────────────────────────────────────── */
+
+typedef struct {
+  SbvConnection *conn;
+  char          *dn;
+  gint           uid_number;
+  gint           gid_number;
+  char          *login_shell;
+  char          *home_dir;
+  char          *gecos;
+} UnixAttrsData;
+
+static void
+unix_attrs_data_free (UnixAttrsData *d)
+{
+  g_free (d->dn);
+  g_free (d->login_shell);
+  g_free (d->home_dir);
+  g_free (d->gecos);
+  g_free (d);
+}
+
+static void
+set_unix_attrs_thread (GTask *task, gpointer source, gpointer task_data,
+                        GCancellable *cancellable)
+{
+  (void) cancellable;
+  UnixAttrsData *d    = task_data;
+  SbvConnection *conn = SBV_CONNECTION (source);
+  LDAP          *ld   = sbv_connection_acquire_ldap (conn);
+
+  if (!ld) {
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+#define N_UNIX_MODS 5
+  LDAPMod  mods[N_UNIX_MODS];
+  LDAPMod *modp[N_UNIX_MODS + 1];
+  char    *vslots[N_UNIX_MODS][2];
+  char     uid_buf[32], gid_buf[32];
+  int      i = 0;
+
+  memset (mods, 0, sizeof mods);
+
+  /* uidNumber */
+  mods[i].mod_op = LDAP_MOD_REPLACE; mods[i].mod_type = "uidNumber";
+  if (d->uid_number >= 0) {
+    g_snprintf (uid_buf, sizeof uid_buf, "%d", d->uid_number);
+    vslots[i][0] = uid_buf; vslots[i][1] = NULL;
+    mods[i].mod_values = vslots[i];
+  }
+  modp[i] = &mods[i]; i++;
+
+  /* gidNumber */
+  mods[i].mod_op = LDAP_MOD_REPLACE; mods[i].mod_type = "gidNumber";
+  if (d->gid_number >= 0) {
+    g_snprintf (gid_buf, sizeof gid_buf, "%d", d->gid_number);
+    vslots[i][0] = gid_buf; vslots[i][1] = NULL;
+    mods[i].mod_values = vslots[i];
+  }
+  modp[i] = &mods[i]; i++;
+
+#define STR_MOD(attr, field) \
+  mods[i].mod_op = LDAP_MOD_REPLACE; mods[i].mod_type = (attr); \
+  if ((field) && *(field)) { \
+    vslots[i][0] = (char *)(field); vslots[i][1] = NULL; \
+    mods[i].mod_values = vslots[i]; \
+  } \
+  modp[i] = &mods[i]; i++;
+
+  STR_MOD ("loginShell",    d->login_shell)
+  STR_MOD ("homeDirectory", d->home_dir)
+  STR_MOD ("gecos",         d->gecos)
+#undef STR_MOD
+#undef N_UNIX_MODS
+
+  modp[i] = NULL;
+
+  int rc = ldap_modify_ext_s (ld, d->dn, modp, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Failed to set Unix attributes: %s",
+                             ldap_err2string (rc));
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+void
+sbv_users_set_unix_attrs_async (SbvConnection       *conn,
+                                 SbvUser             *user,
+                                 gint                 uid_number,
+                                 gint                 gid_number,
+                                 const char          *login_shell,
+                                 const char          *home_dir,
+                                 const char          *gecos,
+                                 GCancellable        *cancellable,
+                                 GAsyncReadyCallback  callback,
+                                 gpointer             user_data)
+{
+  UnixAttrsData *d = g_new0 (UnixAttrsData, 1);
+  d->conn        = conn;
+  d->dn          = g_strdup (sbv_user_get_dn (user));
+  d->uid_number  = uid_number;
+  d->gid_number  = gid_number;
+  d->login_shell = g_strdup (login_shell);
+  d->home_dir    = g_strdup (home_dir);
+  d->gecos       = g_strdup (gecos);
+
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+  g_task_set_task_data (task, d, (GDestroyNotify) unix_attrs_data_free);
+  g_task_run_in_thread (task, set_unix_attrs_thread);
+  g_object_unref (task);
+}
+
+gboolean
+sbv_users_set_unix_attrs_finish (SbvConnection *conn,
+                                  GAsyncResult  *result,
+                                  GError       **error)
 {
   (void) conn;
   return g_task_propagate_boolean (G_TASK (result), error);

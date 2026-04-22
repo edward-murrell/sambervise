@@ -70,4 +70,19 @@ gboolean sbv_users_set_password_flags_finish (SbvConnection *conn,
                                                GAsyncResult  *result,
                                                GError       **error);
 
+/* Set RFC2307/POSIX Unix attributes. Pass -1 for uid/gid to clear; "" to clear strings. */
+void     sbv_users_set_unix_attrs_async  (SbvConnection       *conn,
+                                           SbvUser             *user,
+                                           gint                 uid_number,
+                                           gint                 gid_number,
+                                           const char          *login_shell,
+                                           const char          *home_dir,
+                                           const char          *gecos,
+                                           GCancellable        *cancellable,
+                                           GAsyncReadyCallback  callback,
+                                           gpointer             user_data);
+gboolean sbv_users_set_unix_attrs_finish (SbvConnection *conn,
+                                           GAsyncResult  *result,
+                                           GError       **error);
+
 G_END_DECLS

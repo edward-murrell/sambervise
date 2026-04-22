@@ -9,8 +9,10 @@ struct _SbvGroup {
   gint32   group_type;
   char   **members;    /* GStrv of member DNs, owned */
   /* RFC2307 / POSIX */
-  gint     gid_number; /* -1 = not present */
-  char   **member_uid; /* GStrv of Unix usernames, owned */
+  gint        gid_number; /* -1 = not present */
+  char      **member_uid; /* GStrv of Unix usernames, owned */
+  /* Raw LDAP attribute dump — char* → GStrv, owned */
+  GHashTable *ldap_attrs;
 };
 
 G_DEFINE_TYPE (SbvGroup, sbv_group, G_TYPE_OBJECT)
@@ -25,6 +27,7 @@ sbv_group_finalize (GObject *object)
   g_free (self->description);
   g_strfreev (self->members);
   g_strfreev (self->member_uid);
+  g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   G_OBJECT_CLASS (sbv_group_parent_class)->finalize (object);
 }
 
@@ -91,4 +94,12 @@ sbv_group_set_member_uid (SbvGroup *self, char **uids)
 {
   g_strfreev (self->member_uid);
   self->member_uid = uids;
+}
+
+GHashTable *sbv_group_get_ldap_attrs (SbvGroup *self) { return self->ldap_attrs; }
+void
+sbv_group_set_ldap_attrs (SbvGroup *self, GHashTable *attrs)
+{
+  g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
+  self->ldap_attrs = attrs;
 }

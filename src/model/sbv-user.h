@@ -45,5 +45,8 @@ void        sbv_user_set_gid_number      (SbvUser *self, gint gid);
 void        sbv_user_set_login_shell     (SbvUser *self, const char *shell);
 void        sbv_user_set_home_dir        (SbvUser *self, const char *home);
 void        sbv_user_set_gecos           (SbvUser *self, const char *gecos);
+/* Raw LDAP attributes — GHashTable<char*,GStrv>; takes/returns ownership */
+GHashTable *sbv_user_get_ldap_attrs      (SbvUser *self);
+void        sbv_user_set_ldap_attrs      (SbvUser *self, GHashTable *attrs);
 
 G_END_DECLS

@@ -33,5 +33,8 @@ void        sbv_group_set_members      (SbvGroup *self, char **members);
 void        sbv_group_set_gid_number   (SbvGroup *self, gint gid);
 /* Takes ownership of a NULL-terminated array of Unix usernames */
 void        sbv_group_set_member_uid   (SbvGroup *self, char **uids);
+/* Raw LDAP attributes — GHashTable<char*,GStrv>; takes/returns ownership */
+GHashTable *sbv_group_get_ldap_attrs   (SbvGroup *self);
+void        sbv_group_set_ldap_attrs   (SbvGroup *self, GHashTable *attrs);
 
 G_END_DECLS

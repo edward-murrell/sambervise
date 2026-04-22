@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(sambervise VERSION 0.1.0 LANGUAGES C)
+project(sambervise VERSION 0.1.2 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -38,6 +38,11 @@ set(CPACK_DEBIAN_PACKAGE_DEPENDS
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_SOURCE_DIR}/packaging/postinst"
     "${CMAKE_SOURCE_DIR}/packaging/postrm")
+
+# Release notes / changelog bundled into the .deb
+set(CPACK_PACKAGE_DESCRIPTION_FILE "${CMAKE_SOURCE_DIR}/CHANGELOG.md")
+install(FILES "${CMAKE_SOURCE_DIR}/CHANGELOG.md"
+        DESTINATION "${CMAKE_INSTALL_DOCDIR}")
 
 # Exclude gschemas.compiled — it's a system-wide database rebuilt by postinst
 set(CPACK_IGNORE_FILES "/gschemas[.]compiled$")

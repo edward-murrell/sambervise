@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Release notes
+
+**Always update `CHANGELOG.md` when making user-visible changes.** The file is bundled into the Debian package at `/usr/share/doc/sambervise/CHANGELOG.md` and is referenced by `CPACK_PACKAGE_DESCRIPTION_FILE` in `CMakeLists.txt`, so it ships with every release.
+
+- Add entries under the current in-progress version, or start a new `## [x.y.z] - YYYY-MM-DD` section for a release bump (and update `project(sambervise VERSION ...)` in `CMakeLists.txt` to match).
+- Use Keep-a-Changelog sections: `### Added`, `### Changed`, `### Fixed`, `### Removed`.
+- Describe changes in user-facing terms (what a DC admin sees), not implementation detail.
+
 ## Project Overview
 
 **Sambervise** is a Linux GUI application for remotely administering Samba 4 Active Directory Domain Controllers. It connects to one or more remote DCs over the network — it has no effect on the local machine and requires no local elevated privileges.
@@ -43,12 +51,14 @@ tests/
 - `backend/sbv-profiles.c` — load/save/upsert/remove `SbvProfile` objects using `GKeyFile`
 - `backend/sbv-users-backend.c` — user LDAP operations (list, enable/disable, password reset)
 - `backend/sbv-groups-backend.c` — group LDAP operations (list, add/remove members)
+- `backend/sbv-computers-backend.c` — computer LDAP operations (list `(objectClass=computer)`, enable/disable, update description and dNSHostName)
 
 ### Model types
 
 - `model/sbv-profile.c` — `SbvProfile` GObject; includes `SbvAuthType` enum (`SBV_AUTH_KERBEROS` / `SBV_AUTH_SIMPLE`)
 - `model/sbv-user.c` — `SbvUser` GObject
 - `model/sbv-group.c` — `SbvGroup` GObject
+- `model/sbv-computer.c` — `SbvComputer` GObject (computer accounts: dn, sam, cn, description, dNSHostName, OS attributes, UAC, pwdLastSet, servicePrincipalName, raw LDAP attrs)
 
 ### Authentication
 

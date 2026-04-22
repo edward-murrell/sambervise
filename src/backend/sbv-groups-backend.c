@@ -4,6 +4,7 @@
 #include <ldap.h>
 #include <lber.h>
 #include <sys/time.h>
+#include <string.h>
 
 /* ── List groups ────────────────────────────────────────────────────────── */
 
@@ -98,6 +99,34 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
           uids[i] = g_strndup (bv[i]->bv_val, bv[i]->bv_len);
         sbv_group_set_member_uid (group, uids);
         ldap_value_free_len (bv);
+      }
+
+      /* Collect all raw LDAP attributes for display */
+      {
+        GHashTable *raw = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                                  g_free, (GDestroyNotify) g_strfreev);
+        BerElement *ber2 = NULL;
+        char *aname;
+        for (aname = ldap_first_attribute (ld, entry, &ber2);
+             aname != NULL;
+             aname = ldap_next_attribute (ld, entry, ber2))
+        {
+          struct berval **av = ldap_get_values_len (ld, entry, aname);
+          if (av) {
+            int cnt = ldap_count_values_len (av);
+            char **sv = g_new0 (char *, cnt + 1);
+            for (int j = 0; j < cnt; j++) {
+              sv[j] = g_utf8_validate (av[j]->bv_val, (gssize) av[j]->bv_len, NULL)
+                ? g_strndup (av[j]->bv_val, av[j]->bv_len)
+                : g_strdup_printf ("<binary %zu bytes>", av[j]->bv_len);
+            }
+            g_hash_table_insert (raw, g_strdup (aname), sv);
+            ldap_value_free_len (av);
+          }
+          ldap_memfree (aname);
+        }
+        if (ber2) ber_free (ber2, 0);
+        sbv_group_set_ldap_attrs (group, raw);
       }
 
       g_list_store_append (store, group);
@@ -231,6 +260,88 @@ gboolean
 sbv_groups_remove_member_finish (SbvConnection *conn,
                                   GAsyncResult  *result,
                                   GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ── Set Unix / RFC2307 attributes ─────────────────────────────────────── */
+
+typedef struct {
+  SbvConnection *conn;
+  char          *dn;
+  gint           gid_number;
+} GroupUnixData;
+
+static void
+group_unix_data_free (GroupUnixData *d)
+{
+  g_free (d->dn);
+  g_free (d);
+}
+
+static void
+set_group_unix_thread (GTask *task, gpointer source, gpointer task_data,
+                        GCancellable *cancellable)
+{
+  (void) cancellable;
+  GroupUnixData *d    = task_data;
+  SbvConnection *conn = SBV_CONNECTION (source);
+  LDAP          *ld   = sbv_connection_acquire_ldap (conn);
+
+  if (!ld) {
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  LDAPMod  mod;
+  LDAPMod *mods[2] = { &mod, NULL };
+  char     gid_buf[32];
+  char    *vals[2]  = { gid_buf, NULL };
+
+  memset (&mod, 0, sizeof mod);
+  mod.mod_op   = LDAP_MOD_REPLACE;
+  mod.mod_type = "gidNumber";
+  if (d->gid_number >= 0) {
+    g_snprintf (gid_buf, sizeof gid_buf, "%d", d->gid_number);
+    mod.mod_values = vals;
+  }
+
+  int rc = ldap_modify_ext_s (ld, d->dn, mods, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Failed to set Unix attributes: %s",
+                             ldap_err2string (rc));
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+void
+sbv_groups_set_unix_attrs_async (SbvConnection       *conn,
+                                  SbvGroup            *group,
+                                  gint                 gid_number,
+                                  GCancellable        *cancellable,
+                                  GAsyncReadyCallback  callback,
+                                  gpointer             user_data)
+{
+  GroupUnixData *d = g_new0 (GroupUnixData, 1);
+  d->conn       = conn;
+  d->dn         = g_strdup (sbv_group_get_dn (group));
+  d->gid_number = gid_number;
+
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+  g_task_set_task_data (task, d, (GDestroyNotify) group_unix_data_free);
+  g_task_run_in_thread (task, set_group_unix_thread);
+  g_object_unref (task);
+}
+
+gboolean
+sbv_groups_set_unix_attrs_finish (SbvConnection *conn,
+                                   GAsyncResult  *result,
+                                   GError       **error)
 {
   (void) conn;
   return g_task_propagate_boolean (G_TASK (result), error);

@@ -30,9 +30,19 @@ struct _SbvGroupsPanel {
   GtkWidget     *detail_type;
   GtkWidget     *detail_scope;
 
-  /* RFC2307 / POSIX (read-only) */
-  GtkWidget     *rfc_gid_label;
-  GtkWidget     *rfc_member_uid_label;
+  /* RFC2307 / POSIX */
+  GtkWidget     *rfc_gid_entry;
+  GtkWidget     *rfc_member_uid_label; /* memberUid — read-only */
+  GtkWidget     *rfc_save_btn;
+  GtkWidget     *rfc_error;
+
+  /* Raw LDAP attributes (dynamic, rebuilt on selection) */
+  GtkWidget     *raw_attrs_box;
+
+  /* Paned split — position initialised on first map */
+  GtkWidget     *paned;
+  gboolean       paned_init;
+
   GtkWidget     *members_list;
   GtkWidget     *member_count_label;
   GtkWidget     *add_member_btn;
@@ -70,8 +80,10 @@ group_scope_string (gint32 gt)
 }
 
 /* ── Forward declarations ───────────────────────────────────────────────── */
-static void populate_members (SbvGroupsPanel *self, SbvGroup *group);
+static void populate_members       (SbvGroupsPanel *self, SbvGroup *group);
 static void show_add_member_dialog (SbvGroupsPanel *self);
+static void populate_raw_attrs     (GtkWidget *box, GHashTable *attrs, int label_width);
+void        sbv_groups_panel_load  (SbvGroupsPanel *self, SbvConnection *conn);
 
 /* ── Row construction ───────────────────────────────────────────────────── */
 
@@ -191,9 +203,10 @@ on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
 
   /* RFC2307 / POSIX */
   gint gid = sbv_group_get_gid_number (group);
-  char *gid_str = (gid >= 0) ? g_strdup_printf ("%d", gid) : g_strdup ("\xe2\x80\x94");
-  gtk_label_set_text (GTK_LABEL (self->rfc_gid_label), gid_str);
+  char *gid_str = (gid >= 0) ? g_strdup_printf ("%d", gid) : g_strdup ("");
+  gtk_editable_set_text (GTK_EDITABLE (self->rfc_gid_entry), gid_str);
   g_free (gid_str);
+  gtk_widget_set_visible (self->rfc_error, FALSE);
 
   guint n_uid = sbv_group_get_member_uid_count (group);
   if (n_uid > 0) {
@@ -204,6 +217,9 @@ on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
   } else {
     gtk_label_set_text (GTK_LABEL (self->rfc_member_uid_label), "\xe2\x80\x94");
   }
+
+  /* Raw LDAP attributes */
+  populate_raw_attrs (self->raw_attrs_box, sbv_group_get_ldap_attrs (group), 90);
 
   populate_members (self, group);
 
@@ -231,19 +247,8 @@ on_remove_done (GObject *source, GAsyncResult *result, gpointer user_data)
     gtk_label_set_text (GTK_LABEL (self->member_error), err->message);
     gtk_widget_set_visible (self->member_error, TRUE);
     g_error_free (err);
-  } else if (self->selected_group) {
-    /* Remove from model */
-    const char * const *members = sbv_group_get_members (self->selected_group);
-    guint n = sbv_group_get_member_count (self->selected_group);
-    char **new_members = g_new0 (char *, n);  /* at most n-1 + NULL */
-    guint  j = 0;
-    for (guint i = 0; i < n; i++) {
-      if (!g_str_equal (members[i], ctx->member_dn))
-        new_members[j++] = g_strdup (members[i]);
-    }
-    new_members[j] = NULL;
-    sbv_group_set_members (self->selected_group, new_members);
-    populate_members (self, self->selected_group);
+  } else {
+    sbv_groups_panel_load (self, conn);
   }
 
   g_free (ctx->member_dn);
@@ -399,18 +404,9 @@ on_add_member_done (GObject *source, GAsyncResult *result, gpointer user_data)
     gtk_label_set_text (GTK_LABEL (self->member_error), err->message);
     gtk_widget_set_visible (self->member_error, TRUE);
     g_error_free (err);
-  } else if (self->selected_group) {
-    /* Append to model */
-    guint  n          = sbv_group_get_member_count (self->selected_group);
-    char **new_members = g_new0 (char *, n + 2);
-    const char * const *old = sbv_group_get_members (self->selected_group);
-    for (guint i = 0; i < n; i++)
-      new_members[i] = g_strdup (old[i]);
-    new_members[n]     = g_strdup (ctx->member_dn);
-    new_members[n + 1] = NULL;
-    sbv_group_set_members (self->selected_group, new_members);
-    populate_members (self, self->selected_group);
+  } else {
     gtk_window_destroy (ctx->dialog);
+    sbv_groups_panel_load (self, conn);
   }
 
   g_free (ctx->member_dn);
@@ -627,6 +623,102 @@ sbv_groups_panel_load (SbvGroupsPanel *self, SbvConnection *conn)
   sbv_groups_list_async (conn, NULL, on_groups_loaded, self);
 }
 
+/* ── Raw attrs helpers ──────────────────────────────────────────────────── */
+
+static GtkWidget *
+make_raw_attr_row (const char *attr, const char *value, int label_width)
+{
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_margin_top    (box, 2);
+  gtk_widget_set_margin_bottom (box, 2);
+  GtkWidget *lbl = gtk_label_new (attr);
+  gtk_label_set_xalign (GTK_LABEL (lbl), 1.0);
+  gtk_widget_set_size_request (lbl, label_width, -1);
+  gtk_widget_add_css_class (lbl, "dim-label");
+  gtk_box_append (GTK_BOX (box), lbl);
+  GtkWidget *val = gtk_label_new (value);
+  gtk_label_set_xalign (GTK_LABEL (val), 0.0);
+  gtk_label_set_selectable (GTK_LABEL (val), TRUE);
+  gtk_label_set_ellipsize (GTK_LABEL (val), PANGO_ELLIPSIZE_END);
+  gtk_widget_set_hexpand (val, TRUE);
+  gtk_widget_add_css_class (val, "monospace");
+  gtk_box_append (GTK_BOX (box), val);
+  return box;
+}
+
+static void
+populate_raw_attrs (GtkWidget *box, GHashTable *attrs, int label_width)
+{
+  GtkWidget *child;
+  while ((child = gtk_widget_get_first_child (box)) != NULL)
+    gtk_box_remove (GTK_BOX (box), child);
+  if (!attrs) return;
+  GList *keys = g_list_sort (g_hash_table_get_keys (attrs), (GCompareFunc) g_strcmp0);
+  for (GList *l = keys; l; l = l->next) {
+    const char  *attr   = l->data;
+    char       **vals   = g_hash_table_lookup (attrs, attr);
+    char        *joined = (vals && vals[0]) ? g_strjoinv ("; ", vals)
+                                            : g_strdup ("\xe2\x80\x94");
+    gtk_box_append (GTK_BOX (box), make_raw_attr_row (attr, joined, label_width));
+    g_free (joined);
+  }
+  g_list_free (keys);
+}
+
+/* ── Paned position ─────────────────────────────────────────────────────── */
+
+static void
+on_paned_map (GtkWidget *widget, gpointer user_data)
+{
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  if (!self->paned_init) {
+    int w = gtk_widget_get_width (widget);
+    if (w > 0) {
+      self->paned_init = TRUE;
+      gtk_paned_set_position (GTK_PANED (widget), 280);
+    }
+  }
+}
+
+/* ── RFC2307 save ───────────────────────────────────────────────────────── */
+
+static void
+on_rfc_save_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  SbvConnection  *conn = SBV_CONNECTION (source);
+  GError         *err  = NULL;
+
+  gtk_widget_set_sensitive (self->rfc_save_btn, TRUE);
+
+  if (!sbv_groups_set_unix_attrs_finish (conn, result, &err)) {
+    gtk_label_set_text (GTK_LABEL (self->rfc_error), err->message);
+    gtk_widget_set_visible (self->rfc_error, TRUE);
+    g_error_free (err);
+    return;
+  }
+
+  gtk_widget_set_visible (self->rfc_error, FALSE);
+  sbv_groups_panel_load (self, conn);
+}
+
+static void
+on_rfc_save_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  if (!self->selected_group || !self->conn) return;
+
+  gtk_widget_set_visible (self->rfc_error, FALSE);
+  gtk_widget_set_sensitive (self->rfc_save_btn, FALSE);
+
+  const char *gid_s = gtk_editable_get_text (GTK_EDITABLE (self->rfc_gid_entry));
+  gint gid = *gid_s ? (gint) strtol (gid_s, NULL, 10) : -1;
+
+  sbv_groups_set_unix_attrs_async (self->conn, self->selected_group, gid,
+                                    NULL, on_rfc_save_done, self);
+}
+
 /* ── Helper: detail info row ────────────────────────────────────────────── */
 
 static GtkWidget *
@@ -699,7 +791,9 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
 
   /* Split */
   {
-    GtkWidget *paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+    self->paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+    GtkWidget *paned = self->paned;
+    g_signal_connect (paned, "map", G_CALLBACK (on_paned_map), self);
 
     /* ── Left: search + list ── */
     GtkWidget *left_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
@@ -749,6 +843,8 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
     /* "detail" page */
     GtkWidget *detail_scroll = gtk_scrolled_window_new ();
     gtk_widget_set_vexpand (detail_scroll, TRUE);
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (detail_scroll),
+                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 
     GtkWidget *detail_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
     gtk_widget_set_margin_top    (detail_box, 16);
@@ -785,24 +881,71 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
     gtk_box_append (GTK_BOX (detail_box),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
 
-    GtkWidget *rfc_lbl = gtk_label_new ("Unix Attributes (RFC2307)");
-    gtk_label_set_xalign (GTK_LABEL (rfc_lbl), 0);
-    gtk_widget_add_css_class (rfc_lbl, "heading");
-    gtk_box_append (GTK_BOX (detail_box), rfc_lbl);
+    {
+      GtkWidget *rfc_lbl = gtk_label_new ("Unix Attributes (RFC2307)");
+      gtk_label_set_xalign (GTK_LABEL (rfc_lbl), 0);
+      gtk_widget_add_css_class (rfc_lbl, "heading");
+      gtk_box_append (GTK_BOX (detail_box), rfc_lbl);
+    }
 
     {
-      GtkWidget *row = make_info_row ("GID Number", &self->rfc_gid_label);
-      gtk_widget_add_css_class (self->rfc_gid_label, "monospace");
-      gtk_label_set_text (GTK_LABEL (self->rfc_gid_label), "\xe2\x80\x94");
+      self->rfc_gid_entry = gtk_entry_new ();
+      gtk_entry_set_placeholder_text (GTK_ENTRY (self->rfc_gid_entry), "GID number");
+      gtk_widget_add_css_class (self->rfc_gid_entry, "monospace");
+      GtkWidget *lbl = gtk_label_new ("GID Number");
+      gtk_label_set_xalign (GTK_LABEL (lbl), 1.0);
+      gtk_widget_set_size_request (lbl, 90, -1);
+      gtk_widget_add_css_class (lbl, "dim-label");
+      GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      gtk_widget_set_margin_top    (row, 3);
+      gtk_widget_set_margin_bottom (row, 3);
+      gtk_widget_set_hexpand (self->rfc_gid_entry, TRUE);
+      gtk_box_append (GTK_BOX (row), lbl);
+      gtk_box_append (GTK_BOX (row), self->rfc_gid_entry);
       gtk_box_append (GTK_BOX (detail_box), row);
     }
+
     {
       GtkWidget *row = make_info_row ("Member UIDs", &self->rfc_member_uid_label);
-      gtk_label_set_ellipsize (GTK_LABEL (self->rfc_member_uid_label),
-                                PANGO_ELLIPSIZE_END);
+      gtk_label_set_ellipsize (GTK_LABEL (self->rfc_member_uid_label), PANGO_ELLIPSIZE_END);
       gtk_label_set_text (GTK_LABEL (self->rfc_member_uid_label), "\xe2\x80\x94");
       gtk_box_append (GTK_BOX (detail_box), row);
     }
+
+    {
+      GtkWidget *rfc_btn_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+      gtk_widget_set_margin_top (rfc_btn_box, 4);
+      self->rfc_save_btn = gtk_button_new_with_label ("Save Unix Attributes");
+      gtk_widget_add_css_class (self->rfc_save_btn, "suggested-action");
+      gtk_widget_set_halign (self->rfc_save_btn, GTK_ALIGN_START);
+      gtk_widget_set_margin_start (self->rfc_save_btn, 98);
+      g_signal_connect (self->rfc_save_btn, "clicked",
+                        G_CALLBACK (on_rfc_save_clicked), self);
+      gtk_box_append (GTK_BOX (rfc_btn_box), self->rfc_save_btn);
+
+      self->rfc_error = gtk_label_new ("");
+      gtk_label_set_xalign (GTK_LABEL (self->rfc_error), 0);
+      gtk_label_set_wrap (GTK_LABEL (self->rfc_error), TRUE);
+      gtk_widget_add_css_class (self->rfc_error, "error");
+      gtk_widget_set_margin_start (self->rfc_error, 98);
+      gtk_widget_set_visible (self->rfc_error, FALSE);
+      gtk_box_append (GTK_BOX (rfc_btn_box), self->rfc_error);
+      gtk_box_append (GTK_BOX (detail_box), rfc_btn_box);
+    }
+
+    /* ── All LDAP Attributes ── */
+    gtk_box_append (GTK_BOX (detail_box),
+                    gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
+
+    {
+      GtkWidget *raw_lbl = gtk_label_new ("All LDAP Attributes");
+      gtk_label_set_xalign (GTK_LABEL (raw_lbl), 0);
+      gtk_widget_add_css_class (raw_lbl, "heading");
+      gtk_box_append (GTK_BOX (detail_box), raw_lbl);
+    }
+
+    self->raw_attrs_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append (GTK_BOX (detail_box), self->raw_attrs_box);
 
     gtk_box_append (GTK_BOX (detail_box),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));

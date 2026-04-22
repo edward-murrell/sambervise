@@ -15,11 +15,13 @@ struct _SbvUser {
   gint64   pwd_last_set;
   gint64   account_expires;
   /* RFC2307 / POSIX */
-  gint     uid_number;   /* -1 = not present */
-  gint     gid_number;   /* -1 = not present */
-  char    *login_shell;
-  char    *home_dir;
-  char    *gecos;
+  gint        uid_number;   /* -1 = not present */
+  gint        gid_number;   /* -1 = not present */
+  char       *login_shell;
+  char       *home_dir;
+  char       *gecos;
+  /* Raw LDAP attribute dump — char* → GStrv, owned */
+  GHashTable *ldap_attrs;
 };
 
 G_DEFINE_TYPE (SbvUser, sbv_user, G_TYPE_OBJECT)
@@ -39,6 +41,7 @@ sbv_user_finalize (GObject *object)
   g_free (self->login_shell);
   g_free (self->home_dir);
   g_free (self->gecos);
+  g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   G_OBJECT_CLASS (sbv_user_parent_class)->finalize (object);
 }
 
@@ -95,3 +98,11 @@ gint        sbv_user_get_gid_number  (SbvUser *self) { return self->gid_number; 
 const char *sbv_user_get_login_shell (SbvUser *self) { return self->login_shell; }
 const char *sbv_user_get_home_dir    (SbvUser *self) { return self->home_dir; }
 const char *sbv_user_get_gecos       (SbvUser *self) { return self->gecos; }
+
+GHashTable *sbv_user_get_ldap_attrs  (SbvUser *self) { return self->ldap_attrs; }
+void
+sbv_user_set_ldap_attrs (SbvUser *self, GHashTable *attrs)
+{
+  g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
+  self->ldap_attrs = attrs;
+}

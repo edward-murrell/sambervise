@@ -3,6 +3,7 @@
 #include "sbv-password-dialog.h"
 #include "sbv-users-panel.h"
 #include "sbv-groups-panel.h"
+#include "sbv-computers-panel.h"
 
 struct _SbvWindow {
   AdwApplicationWindow  parent;
@@ -14,6 +15,7 @@ struct _SbvWindow {
   GtkListBox           *nav_list;
   GtkListBoxRow        *nav_users_row;
   GtkListBoxRow        *nav_groups_row;
+  GtkListBoxRow        *nav_computers_row;
   GtkWidget            *nav_separator;
   GtkButton            *add_conn_btn;
   GtkSpinner           *spinner;
@@ -24,6 +26,7 @@ struct _SbvWindow {
   SbvProfile           *active_profile;
   SbvUsersPanel        *users_panel;
   SbvGroupsPanel       *groups_panel;
+  SbvComputersPanel    *computers_panel;
 };
 
 G_DEFINE_TYPE (SbvWindow, sbv_window, ADW_TYPE_APPLICATION_WINDOW)
@@ -186,6 +189,8 @@ on_nav_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
     gtk_stack_set_visible_child_name (self->content_stack, "users");
   else if (row == self->nav_groups_row)
     gtk_stack_set_visible_child_name (self->content_stack, "groups");
+  else if (row == self->nav_computers_row)
+    gtk_stack_set_visible_child_name (self->content_stack, "computers");
 }
 
 static void
@@ -235,8 +240,9 @@ sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profi
   gtk_stack_set_visible_child_name (self->content_stack, "users");
   gtk_list_box_select_row (self->nav_list, self->nav_users_row);
 
-  sbv_users_panel_load  (self->users_panel,  conn);
-  sbv_groups_panel_load (self->groups_panel, conn);
+  sbv_users_panel_load     (self->users_panel,     conn);
+  sbv_groups_panel_load    (self->groups_panel,    conn);
+  sbv_computers_panel_load (self->computers_panel, conn);
 }
 
 /* ── GObject / template ─────────────────────────────────────────────────── */
@@ -266,6 +272,7 @@ sbv_window_class_init (SbvWindowClass *klass)
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_list);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_users_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_groups_row);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, nav_computers_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_separator);
   gtk_widget_class_bind_template_child (wc, SbvWindow, add_conn_btn);
   gtk_widget_class_bind_template_child (wc, SbvWindow, spinner);
@@ -276,11 +283,13 @@ sbv_window_init (SbvWindow *self)
 {
   gtk_widget_init_template (GTK_WIDGET (self));
 
-  self->users_panel  = SBV_USERS_PANEL  (sbv_users_panel_new ());
-  self->groups_panel = SBV_GROUPS_PANEL (sbv_groups_panel_new ());
+  self->users_panel     = SBV_USERS_PANEL     (sbv_users_panel_new ());
+  self->groups_panel    = SBV_GROUPS_PANEL    (sbv_groups_panel_new ());
+  self->computers_panel = SBV_COMPUTERS_PANEL (sbv_computers_panel_new ());
 
-  gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->users_panel),  "users");
-  gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->groups_panel), "groups");
+  gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->users_panel),     "users");
+  gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->groups_panel),    "groups");
+  gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->computers_panel), "computers");
 
   g_signal_connect (self->add_conn_btn,  "clicked",
                     G_CALLBACK (on_add_conn_clicked), self);
