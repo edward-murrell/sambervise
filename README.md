@@ -104,3 +104,6 @@ Sambervise will use the credential cache automatically. No password prompt is sh
 ```bash
 ctest --test-dir build --output-on-failure
 ```
+
+## License
+GPLv3
