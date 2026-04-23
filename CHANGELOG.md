@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Delete user: "Delete User…" button in a Danger Zone section on the user
   detail page; opens a type-to-confirm modal that requires the user's
   sAMAccountName before the destructive button activates.
+- Create group: "+" button on the groups panel opens a dialog for group name,
+  description, scope (Global / Domain Local / Universal), type (Security /
+  Distribution) and container DN (defaults to `CN=Users,<base>`).
+- Delete group: "Delete Group…" button in a Danger Zone section on the group
+  detail page; type-to-confirm modal requires the group's sAMAccountName.
 - Computers panel: browse computer accounts with search, view OS details
   (operatingSystem, version, service pack), Service Principal Names, and the
   full LDAP attribute dump.

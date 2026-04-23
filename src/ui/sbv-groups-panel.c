@@ -1,4 +1,5 @@
 #include "sbv-groups-panel.h"
+#include "sbv-create-group-dialog.h"
 #include "../backend/sbv-groups-backend.h"
 #include "../backend/sbv-users-backend.h"
 #include "../model/sbv-group.h"
@@ -19,6 +20,7 @@ struct _SbvGroupsPanel {
 
   GtkWidget     *outer_stack;    /* "loading" | "empty" | "split" */
   GtkWidget     *search_entry;
+  GtkWidget     *add_btn;
   GtkWidget     *list_box;
 
   /* Detail pane */
@@ -48,9 +50,18 @@ struct _SbvGroupsPanel {
   GtkWidget     *add_member_btn;
   GtkWidget     *member_error;
 
+  /* Delete */
+  GtkWidget     *delete_btn;
+  GtkWidget     *delete_error;
+
   SbvConnection *conn;
-  SbvGroup      *selected_group;  /* owned ref */
+  SbvGroup      *selected_group;       /* owned ref */
   char          *filter_text;
+  /* When non-NULL the next reload re-selects the row whose sAMAccountName
+   * matches this string (and then clears it). Used by the create flow to
+   * highlight the just-created group; for a normal reload (after save) we
+   * fall back to selected_group's current sam. */
+  char          *pending_select_sam;
 };
 
 G_DEFINE_TYPE (SbvGroupsPanel, sbv_groups_panel, GTK_TYPE_BOX)
@@ -225,6 +236,10 @@ on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
 
   gtk_label_set_text (GTK_LABEL (self->member_error), "");
   gtk_widget_set_visible (self->member_error, FALSE);
+  if (self->delete_error) {
+    gtk_label_set_text (GTK_LABEL (self->delete_error), "");
+    gtk_widget_set_visible (self->delete_error, FALSE);
+  }
   gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "detail");
 }
 
@@ -582,6 +597,201 @@ on_add_member_btn_clicked (GtkButton *btn, gpointer user_data)
   show_add_member_dialog (SBV_GROUPS_PANEL (user_data));
 }
 
+/* ── Create / Delete ────────────────────────────────────────────────────── */
+
+/* Called when the create-group dialog finishes successfully. Records the
+ * sAMAccountName of the new group (extracted from the first RDN of the
+ * new DN — for groups, CN equals sAMAccountName by AD convention) so the
+ * subsequent reload can auto-select it. */
+static void
+on_group_created (SbvConnection *conn, const char *new_dn, gpointer user_data)
+{
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+
+  if (new_dn && g_ascii_strncasecmp (new_dn, "CN=", 3) == 0) {
+    const char *start = new_dn + 3;
+    const char *comma = strchr (start, ',');
+    g_free (self->pending_select_sam);
+    self->pending_select_sam =
+      comma ? g_strndup (start, comma - start) : g_strdup (start);
+  }
+
+  sbv_groups_panel_load (self, conn);
+}
+
+/* Toolbar "+" button: opens the create-group dialog. */
+static void
+on_add_group_btn_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  if (!self->conn) return;
+
+  GtkWidget *parent = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  sbv_create_group_dialog_show (parent ? GTK_WINDOW (parent) : NULL,
+                                 self->conn, on_group_created, self);
+}
+
+/* Async-completion callback for the group delete operation. */
+static void
+on_group_delete_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  SbvConnection  *conn = SBV_CONNECTION (source);
+  GError         *err  = NULL;
+
+  gtk_widget_set_sensitive (self->delete_btn, TRUE);
+
+  if (!sbv_groups_delete_finish (conn, result, &err)) {
+    gtk_label_set_text (GTK_LABEL (self->delete_error), err->message);
+    gtk_widget_set_visible (self->delete_error, TRUE);
+    g_error_free (err);
+    return;
+  }
+
+  /* Drop the now-stale selection so the reload doesn't try to re-pick a
+   * deleted entry. */
+  g_clear_object (&self->selected_group);
+  sbv_groups_panel_load (self, conn);
+}
+
+/* Type-to-confirm dialog state. */
+typedef struct {
+  SbvGroupsPanel *panel;
+  GtkWindow      *dialog;
+  GtkWidget      *entry;
+  GtkWidget      *delete_btn;
+  char           *expected_sam;
+} ConfirmDelGroupCtx;
+
+/* Frees the per-dialog context. */
+static void
+confirm_del_group_ctx_free (ConfirmDelGroupCtx *ctx)
+{
+  g_free (ctx->expected_sam);
+  g_free (ctx);
+}
+
+/* Enables the destructive button only when the typed text matches the
+ * target group's sAMAccountName. */
+static void
+on_confirm_group_entry_changed (GtkEditable *editable, gpointer user_data)
+{
+  ConfirmDelGroupCtx *ctx   = user_data;
+  const char         *typed = gtk_editable_get_text (editable);
+  gtk_widget_set_sensitive (ctx->delete_btn,
+                             g_str_equal (typed, ctx->expected_sam));
+}
+
+/* Confirm-button handler: dispatches the delete and closes the dialog. */
+static void
+on_confirm_group_delete_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  ConfirmDelGroupCtx *ctx  = user_data;
+  SbvGroupsPanel     *self = ctx->panel;
+  if (!self->conn || !self->selected_group) {
+    gtk_window_destroy (ctx->dialog);
+    return;
+  }
+
+  gtk_widget_set_visible (self->delete_error, FALSE);
+  gtk_widget_set_sensitive (self->delete_btn, FALSE);
+
+  sbv_groups_delete_async (self->conn, self->selected_group,
+                            NULL, on_group_delete_done, self);
+  gtk_window_destroy (ctx->dialog);
+}
+
+/* Builds and presents the type-to-confirm modal for deleting a group. */
+static void
+show_group_delete_confirm (SbvGroupsPanel *self)
+{
+  if (!self->selected_group) return;
+  const char *sam = sbv_group_get_sam (self->selected_group);
+  if (!sam || !*sam) return;
+
+  ConfirmDelGroupCtx *ctx = g_new0 (ConfirmDelGroupCtx, 1);
+  ctx->panel        = self;
+  ctx->expected_sam = g_strdup (sam);
+
+  GtkWidget *win = gtk_window_new ();
+  gtk_window_set_title (GTK_WINDOW (win), "Delete Group");
+  gtk_window_set_modal (GTK_WINDOW (win), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (win), 420, 220);
+  GtkWidget *parent = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  if (parent)
+    gtk_window_set_transient_for (GTK_WINDOW (win), GTK_WINDOW (parent));
+  ctx->dialog = GTK_WINDOW (win);
+
+  GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+
+  GtkWidget *header = adw_header_bar_new ();
+  adw_header_bar_set_show_end_title_buttons (ADW_HEADER_BAR (header), FALSE);
+
+  GtkWidget *cancel_btn = gtk_button_new_with_label ("Cancel");
+  adw_header_bar_pack_start (ADW_HEADER_BAR (header), cancel_btn);
+  g_signal_connect_swapped (cancel_btn, "clicked",
+                             G_CALLBACK (gtk_window_destroy), win);
+
+  ctx->delete_btn = gtk_button_new_with_label ("Delete");
+  gtk_widget_add_css_class (ctx->delete_btn, "destructive-action");
+  gtk_widget_set_sensitive (ctx->delete_btn, FALSE);
+  adw_header_bar_pack_end (ADW_HEADER_BAR (header), ctx->delete_btn);
+  g_signal_connect (ctx->delete_btn, "clicked",
+                    G_CALLBACK (on_confirm_group_delete_clicked), ctx);
+
+  gtk_box_append (GTK_BOX (vbox), header);
+
+  GtkWidget *body = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+  gtk_widget_set_margin_top    (body, 16);
+  gtk_widget_set_margin_bottom (body, 16);
+  gtk_widget_set_margin_start  (body, 20);
+  gtk_widget_set_margin_end    (body, 20);
+
+  char *warn_text = g_strdup_printf (
+    "Permanently delete group <b>%s</b>?\n"
+    "This cannot be undone. Members are not deleted.", sam);
+  GtkWidget *warn = gtk_label_new (NULL);
+  gtk_label_set_markup (GTK_LABEL (warn), warn_text);
+  gtk_label_set_xalign (GTK_LABEL (warn), 0);
+  gtk_label_set_wrap   (GTK_LABEL (warn), TRUE);
+  g_free (warn_text);
+  gtk_box_append (GTK_BOX (body), warn);
+
+  char *prompt_text = g_strdup_printf (
+    "Type the group name (<tt>%s</tt>) to confirm:", sam);
+  GtkWidget *prompt = gtk_label_new (NULL);
+  gtk_label_set_markup (GTK_LABEL (prompt), prompt_text);
+  gtk_label_set_xalign (GTK_LABEL (prompt), 0);
+  gtk_widget_add_css_class (prompt, "dim-label");
+  gtk_widget_set_margin_top (prompt, 4);
+  g_free (prompt_text);
+  gtk_box_append (GTK_BOX (body), prompt);
+
+  ctx->entry = gtk_entry_new ();
+  gtk_widget_add_css_class (ctx->entry, "monospace");
+  g_signal_connect (ctx->entry, "changed",
+                    G_CALLBACK (on_confirm_group_entry_changed), ctx);
+  gtk_box_append (GTK_BOX (body), ctx->entry);
+
+  gtk_box_append (GTK_BOX (vbox), body);
+
+  gtk_window_set_child (GTK_WINDOW (win), vbox);
+  g_signal_connect_swapped (win, "destroy",
+                             G_CALLBACK (confirm_del_group_ctx_free), ctx);
+  gtk_window_present (GTK_WINDOW (win));
+  gtk_widget_grab_focus (ctx->entry);
+}
+
+/* Detail-pane "Delete" button: routes to the type-to-confirm dialog. */
+static void
+on_delete_group_btn_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  show_group_delete_confirm (SBV_GROUPS_PANEL (user_data));
+}
+
 /* ── Load ───────────────────────────────────────────────────────────────── */
 
 static void
@@ -598,21 +808,46 @@ on_groups_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
     return;
   }
 
+  /* Decide which row to re-select after the rebuild. pending_select_sam
+   * (set by the create flow) takes precedence; otherwise fall back to the
+   * sam of whatever was selected before the reload (preserves selection
+   * across "Save" actions). The delete flow clears selected_group before
+   * triggering the reload, so this resolves to NULL there — exactly what
+   * we want. */
+  char *target_sam = NULL;
+  if (self->pending_select_sam) {
+    target_sam = self->pending_select_sam;        /* takes ownership */
+    self->pending_select_sam = NULL;
+  } else if (self->selected_group) {
+    target_sam = g_strdup (sbv_group_get_sam (self->selected_group));
+  }
+
   GtkWidget *child;
   while ((child = gtk_widget_get_first_child (self->list_box)) != NULL)
     gtk_list_box_remove (GTK_LIST_BOX (self->list_box), child);
 
-  guint n = g_list_model_get_n_items (G_LIST_MODEL (store));
+  guint          n        = g_list_model_get_n_items (G_LIST_MODEL (store));
+  GtkListBoxRow *reselect = NULL;
+
   for (guint i = 0; i < n; i++) {
-    SbvGroup *group = g_list_model_get_item (G_LIST_MODEL (store), i);
-    gtk_list_box_append (GTK_LIST_BOX (self->list_box), make_group_row (group));
+    SbvGroup  *group = g_list_model_get_item (G_LIST_MODEL (store), i);
+    GtkWidget *row   = make_group_row (group);
+    gtk_list_box_append (GTK_LIST_BOX (self->list_box), row);
+    if (target_sam && g_str_equal (sbv_group_get_sam (group) ?: "", target_sam))
+      reselect = GTK_LIST_BOX_ROW (row);
     g_object_unref (group);
   }
 
   g_object_unref (store);
+  g_free (target_sam);
+
   gtk_stack_set_visible_child_name (GTK_STACK (self->outer_stack),
                                      n == 0 ? "empty" : "split");
-  gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "none");
+
+  if (reselect)
+    gtk_list_box_select_row (GTK_LIST_BOX (self->list_box), reselect);
+  else
+    gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "none");
 }
 
 void
@@ -751,6 +986,7 @@ sbv_groups_panel_finalize (GObject *object)
 {
   SbvGroupsPanel *self = SBV_GROUPS_PANEL (object);
   g_free (self->filter_text);
+  g_free (self->pending_select_sam);
   g_clear_object (&self->selected_group);
   G_OBJECT_CLASS (sbv_groups_panel_parent_class)->finalize (object);
 }
@@ -810,6 +1046,14 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
     g_signal_connect (self->search_entry, "search-changed",
                       G_CALLBACK (on_search_changed), self);
     gtk_box_append (GTK_BOX (toolbar), self->search_entry);
+
+    self->add_btn = gtk_button_new_from_icon_name ("list-add-symbolic");
+    gtk_widget_add_css_class (self->add_btn, "flat");
+    gtk_widget_set_tooltip_text (self->add_btn, "Create group");
+    g_signal_connect (self->add_btn, "clicked",
+                      G_CALLBACK (on_add_group_btn_clicked), self);
+    gtk_box_append (GTK_BOX (toolbar), self->add_btn);
+
     gtk_box_append (GTK_BOX (left_box), toolbar);
     gtk_box_append (GTK_BOX (left_box),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
@@ -986,6 +1230,35 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (members_scroll),
                                     self->members_list);
     gtk_box_append (GTK_BOX (detail_box), members_scroll);
+
+    /* ── Danger zone ── */
+    gtk_box_append (GTK_BOX (detail_box),
+                    gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
+    {
+      GtkWidget *dz_lbl = gtk_label_new ("Danger Zone");
+      gtk_label_set_xalign (GTK_LABEL (dz_lbl), 0);
+      gtk_widget_add_css_class (dz_lbl, "heading");
+      gtk_widget_set_margin_top (dz_lbl, 8);
+      gtk_box_append (GTK_BOX (detail_box), dz_lbl);
+
+      GtkWidget *del_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+      gtk_widget_set_margin_top (del_box, 4);
+
+      self->delete_btn = gtk_button_new_with_label ("Delete Group…");
+      gtk_widget_add_css_class (self->delete_btn, "destructive-action");
+      gtk_widget_set_halign (self->delete_btn, GTK_ALIGN_START);
+      g_signal_connect (self->delete_btn, "clicked",
+                        G_CALLBACK (on_delete_group_btn_clicked), self);
+      gtk_box_append (GTK_BOX (del_box), self->delete_btn);
+
+      self->delete_error = gtk_label_new ("");
+      gtk_label_set_xalign (GTK_LABEL (self->delete_error), 0);
+      gtk_label_set_wrap (GTK_LABEL (self->delete_error), TRUE);
+      gtk_widget_add_css_class (self->delete_error, "error");
+      gtk_widget_set_visible (self->delete_error, FALSE);
+      gtk_box_append (GTK_BOX (del_box), self->delete_error);
+      gtk_box_append (GTK_BOX (detail_box), del_box);
+    }
 
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (detail_scroll), detail_box);
     gtk_stack_add_named (GTK_STACK (self->detail_stack), detail_scroll, "detail");

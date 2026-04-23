@@ -346,3 +346,177 @@ sbv_groups_set_unix_attrs_finish (SbvConnection *conn,
   (void) conn;
   return g_task_propagate_boolean (G_TASK (result), error);
 }
+
+/* ── Create group ───────────────────────────────────────────────────────── */
+
+typedef struct {
+  char  *sam;
+  char  *description;
+  gint32 group_type;
+  char  *container_dn;
+} CreateGroupData;
+
+/* Frees CreateGroupData previously passed via g_task_set_task_data. */
+static void
+create_group_data_free (CreateGroupData *d)
+{
+  g_free (d->sam);
+  g_free (d->description);
+  g_free (d->container_dn);
+  g_free (d);
+}
+
+/* Worker thread: builds the LDAP entry and issues ldap_add_ext_s for a
+ * new group. The CN is the sAMAccountName by convention (matches what AD's
+ * own tooling does). */
+static void
+create_group_thread (GTask *task, gpointer source, gpointer task_data,
+                     GCancellable *cancellable)
+{
+  SbvConnection   *conn = SBV_CONNECTION (source);
+  CreateGroupData *d    = task_data;
+  (void) cancellable;
+
+  LDAP *ld = sbv_connection_acquire_ldap (conn);
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  char *dn = g_strdup_printf ("CN=%s,%s", d->sam, d->container_dn);
+
+  /* groupType is stored as a signed 32-bit; the security bit is the high
+   * bit so we have to format with %d and let the natural signed wrap-around
+   * produce the negative value AD expects. */
+  char gt_buf[16];
+  g_snprintf (gt_buf, sizeof gt_buf, "%d", (int) d->group_type);
+
+  char *oc_vals[]   = { "top", "group", NULL };
+  char *sam_vals[]  = { d->sam, NULL };
+  char *gt_vals[]   = { gt_buf, NULL };
+  char *desc_vals[] = { d->description, NULL };
+
+  LDAPMod oc_mod   = { LDAP_MOD_ADD, "objectClass",    { .modv_strvals = oc_vals  } };
+  LDAPMod sam_mod  = { LDAP_MOD_ADD, "sAMAccountName", { .modv_strvals = sam_vals } };
+  LDAPMod gt_mod   = { LDAP_MOD_ADD, "groupType",      { .modv_strvals = gt_vals  } };
+  LDAPMod desc_mod = { LDAP_MOD_ADD, "description",    { .modv_strvals = desc_vals } };
+
+  LDAPMod *mods[5];
+  int      n = 0;
+  mods[n++] = &oc_mod;
+  mods[n++] = &sam_mod;
+  mods[n++] = &gt_mod;
+  if (d->description && *d->description) mods[n++] = &desc_mod;
+  mods[n] = NULL;
+
+  int rc = ldap_add_ext_s (ld, dn, mods, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS) {
+    g_free (dn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Create failed: %s", ldap_err2string (rc));
+    return;
+  }
+
+  g_task_return_pointer (task, dn, g_free);
+}
+
+/* Public entry — see header. Validates required fields and dispatches to a
+ * worker thread. */
+void
+sbv_groups_create_async (SbvConnection       *conn,
+                          const char          *sam,
+                          const char          *description,
+                          gint32               group_type,
+                          const char          *container_dn,
+                          GCancellable        *cancellable,
+                          GAsyncReadyCallback  callback,
+                          gpointer             user_data)
+{
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+
+  if (!sam || !*sam || !container_dn || !*container_dn) {
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Group name and container are required");
+    g_object_unref (task);
+    return;
+  }
+
+  CreateGroupData *d = g_new0 (CreateGroupData, 1);
+  d->sam          = g_strdup (sam);
+  d->description  = g_strdup (description);
+  d->group_type   = group_type;
+  d->container_dn = g_strdup (container_dn);
+
+  g_task_set_task_data (task, d, (GDestroyNotify) create_group_data_free);
+  g_task_run_in_thread (task, create_group_thread);
+  g_object_unref (task);
+}
+
+/* Returns the DN of the newly-created group (caller frees) or NULL on
+ * error. */
+char *
+sbv_groups_create_finish (SbvConnection *conn,
+                           GAsyncResult  *result,
+                           GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/* ── Delete group ───────────────────────────────────────────────────────── */
+
+/* Worker thread: issues a single ldap_delete_ext_s call. */
+static void
+delete_group_thread (GTask *task, gpointer source, gpointer task_data,
+                     GCancellable *cancellable)
+{
+  SbvConnection *conn = SBV_CONNECTION (source);
+  char          *dn   = task_data;
+  (void) cancellable;
+
+  LDAP *ld = sbv_connection_acquire_ldap (conn);
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  int rc = ldap_delete_ext_s (ld, dn, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Delete failed: %s", ldap_err2string (rc));
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+/* Public entry — schedules the delete on a worker thread. The group's DN
+ * is captured at call time so the SbvGroup may be freed before completion. */
+void
+sbv_groups_delete_async (SbvConnection       *conn,
+                          SbvGroup            *group,
+                          GCancellable        *cancellable,
+                          GAsyncReadyCallback  callback,
+                          gpointer             user_data)
+{
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+  g_task_set_task_data (task, g_strdup (sbv_group_get_dn (group)), g_free);
+  g_task_run_in_thread (task, delete_group_thread);
+  g_object_unref (task);
+}
+
+/* Reports success/failure of a previously-scheduled delete. */
+gboolean
+sbv_groups_delete_finish (SbvConnection *conn,
+                           GAsyncResult  *result,
+                           GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_boolean (G_TASK (result), error);
+}

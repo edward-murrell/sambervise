@@ -20,6 +20,15 @@ typedef struct {
   GtkWidget *create_btn;
   GtkWidget *spinner;
   GtkWidget *error_label;
+
+  /* Auto-fill state for cn:
+   *   syncing   — true while we're programmatically updating cn so the
+   *               cn-changed handler doesn't mistake it for a user edit.
+   *   cn_manual — true once the user has typed into cn directly; while set
+   *               we stop auto-filling. Reset to false if the user clears
+   *               cn, so auto-fill resumes. */
+  gboolean syncing;
+  gboolean cn_manual;
 } CreateCtx;
 
 /* Frees the per-dialog context. Wired to the window's "destroy" signal so it
@@ -96,25 +105,40 @@ on_create_clicked (GtkButton *btn, gpointer user_data)
                            NULL, on_create_done, ctx);
 }
 
-/* Auto-fill cn from "given sn" while the user is typing names — a small
- * convenience matching how AD admins typically build display names. Only
- * runs while the cn field is empty so manual edits aren't clobbered. */
+/* Auto-fill cn from "given sn" as the user types — a small convenience
+ * matching how AD admins typically build display names. Stops auto-filling
+ * once the user has manually edited the cn field (see on_cn_changed). */
 static void
 on_name_part_changed (GtkEditable *editable, gpointer user_data)
 {
   (void) editable;
   CreateCtx *ctx = user_data;
-
-  const char *cn_existing = gtk_editable_get_text (GTK_EDITABLE (ctx->cn_entry));
-  if (*cn_existing) return;
+  if (ctx->cn_manual) return;
 
   const char *given = gtk_editable_get_text (GTK_EDITABLE (ctx->given_entry));
   const char *sn    = gtk_editable_get_text (GTK_EDITABLE (ctx->sn_entry));
-  if (!*given && !*sn) return;
 
-  char *combined = g_strdup_printf ("%s%s%s", given, (*given && *sn) ? " " : "", sn);
+  char *combined = g_strdup_printf ("%s%s%s", given,
+                                     (*given && *sn) ? " " : "", sn);
+
+  ctx->syncing = TRUE;
   gtk_editable_set_text (GTK_EDITABLE (ctx->cn_entry), combined);
+  ctx->syncing = FALSE;
+
   g_free (combined);
+}
+
+/* Tracks whether cn has been edited by the user. Programmatic updates done
+ * via on_name_part_changed set ctx->syncing first so we ignore those. If
+ * the user clears cn entirely, treat that as "give me the auto-fill back"
+ * and resume syncing. */
+static void
+on_cn_changed (GtkEditable *editable, gpointer user_data)
+{
+  CreateCtx *ctx = user_data;
+  if (ctx->syncing) return;
+  const char *text = gtk_editable_get_text (editable);
+  ctx->cn_manual = (*text != '\0');
 }
 
 /* Builds a labelled form row with the project's standard 140px label width. */
@@ -207,6 +231,8 @@ sbv_create_user_dialog_show (GtkWindow            *parent,
   ctx->cn_entry = gtk_entry_new ();
   gtk_entry_set_placeholder_text (GTK_ENTRY (ctx->cn_entry),
                                    "Used as the CN/RDN");
+  g_signal_connect (ctx->cn_entry, "changed",
+                    G_CALLBACK (on_cn_changed), ctx);
   gtk_box_append (GTK_BOX (form),
                    make_field_row ("Full Name (cn)", ctx->cn_entry));
 

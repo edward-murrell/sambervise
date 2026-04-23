@@ -34,13 +34,16 @@ can pick it up later without re-litigating decisions.
   modal requires the user's sAMAccountName before the destructive button
   activates.
 
-### 2. Add/delete groups
-- Create-group dialog (sAMAccountName, scope = Global / Domain Local /
-  Universal, type = Security / Distribution, container DN).
-- Default container: `CN=Users,<base>`, with override.
-- Delete action with **type-to-confirm** (sAMAccountName).
-- Backend: `ldap_add_ext_s` with the right `groupType` bitmask;
-  `ldap_delete_ext_s` for delete.
+### 2. Add/delete groups  *(DONE — 0.1.2)*
+- Backend: `sbv_groups_create_async` (ldap_add_ext_s with groupType bitmask)
+  + `sbv_groups_delete_async` (ldap_delete_ext_s).
+- Create dialog `ui/sbv-create-group-dialog.{h,c}`: sAMAccountName,
+  description, scope dropdown (Global/Domain Local/Universal), type dropdown
+  (Security/Distribution), container DN (defaults to `CN=Users,<base>`).
+- Delete: "Delete Group…" button in a Danger Zone section on the group
+  detail pane. Type-to-confirm modal requires sAMAccountName.
+- `groupType` AD bits exported from `sbv-groups-backend.h` so the dialog
+  doesn't redefine them.
 
 ### 3. Add/delete computers
 - Create-computer dialog (cn → derives sAMAccountName=`cn$`, optional
@@ -84,6 +87,20 @@ can pick it up later without re-litigating decisions.
 - **Tree navigation only** to start — no arbitrary LDAP filter search box yet.
 - **Read-only** initially. Per-attribute add/modify/delete will land in a
   follow-up iteration once the browser shape settles.
+
+## Connection management
+
+### 8. Edit connection profiles after creation
+- Currently the connect dialog is "create-only": once a profile is saved
+  there's no way to change host, port, base DN, auth type, TLS settings,
+  or the new POSIX UID/GID range fields without hand-editing
+  `~/.config/sambervise/connections.ini`.
+- Wanted: a way to re-open the connect dialog (or an equivalent edit
+  dialog) for an existing profile. Likely a context-menu or pencil-icon
+  on each row in the sidebar profiles list. On save, `sbv_profiles_upsert`
+  already does the right thing (matches by name).
+- Decide what happens if the active connection's profile is edited —
+  prompt to reconnect, or just take effect on next connect?
 
 ## UI visibility / inspection
 

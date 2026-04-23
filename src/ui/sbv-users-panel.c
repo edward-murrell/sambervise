@@ -81,6 +81,13 @@ struct _SbvUsersPanel {
   SbvConnection *conn;           /* unowned */
   SbvUser       *selected_user;  /* owned ref */
   char          *filter_text;
+  /* When non-NULL the next reload re-selects the row whose DN matches this
+   * string (and then clears it). Used by the create flow to highlight the
+   * just-created user; we match by DN rather than sam because the create
+   * dialog allows free-form cn so DN is the most reliable identifier here.
+   * For a normal reload (after save) this stays NULL and the loader falls
+   * back to matching selected_user's sam. */
+  char          *pending_select_dn;
 };
 
 G_DEFINE_TYPE (SbvUsersPanel, sbv_users_panel, GTK_TYPE_BOX)
@@ -560,15 +567,17 @@ on_save_policy_clicked (GtkButton *btn, gpointer user_data)
 
 /* ── Create / Delete ────────────────────────────────────────────────────── */
 
-/* Called when the create-user dialog finishes successfully. Refreshes the
- * user list so the new entry appears (it will be re-selected if its sam
- * matches the previously-selected one — usually it won't, so the new entry
- * just shows up unselected). */
+/* Called when the create-user dialog finishes successfully. Records the
+ * new DN so the upcoming reload auto-selects that row. We match by DN
+ * (not sam) because the create dialog allows arbitrary cn values; the DN
+ * is the only identifier the dialog produces that we can compare against
+ * later. */
 static void
 on_user_created (SbvConnection *conn, const char *new_dn, gpointer user_data)
 {
-  (void) new_dn;
   SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  g_free (self->pending_select_dn);
+  self->pending_select_dn = g_strdup (new_dn);
   sbv_users_panel_load (self, conn);
 }
 
@@ -763,10 +772,17 @@ on_users_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
     return;
   }
 
-  /* Preserve selected sam for re-selection */
-  char *selected_sam = NULL;
-  if (self->selected_user)
-    selected_sam = g_strdup (sbv_user_get_sam (self->selected_user));
+  /* Decide what to re-select. pending_select_dn (set by the create flow)
+   * wins, matched by full DN; otherwise fall back to selected_user's sam
+   * which preserves selection across normal save reloads. */
+  char *target_dn  = NULL;
+  char *target_sam = NULL;
+  if (self->pending_select_dn) {
+    target_dn = self->pending_select_dn;        /* takes ownership */
+    self->pending_select_dn = NULL;
+  } else if (self->selected_user) {
+    target_sam = g_strdup (sbv_user_get_sam (self->selected_user));
+  }
 
   GtkWidget *child;
   while ((child = gtk_widget_get_first_child (self->list_box)) != NULL)
@@ -779,13 +795,18 @@ on_users_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
     SbvUser   *user = g_list_model_get_item (G_LIST_MODEL (store), i);
     GtkWidget *row  = make_user_row (user);
     gtk_list_box_append (GTK_LIST_BOX (self->list_box), row);
-    if (selected_sam && g_str_equal (sbv_user_get_sam (user) ?: "", selected_sam))
-      reselect = GTK_LIST_BOX_ROW (row);
+    if (!reselect) {
+      if (target_dn && g_str_equal (sbv_user_get_dn (user) ?: "", target_dn))
+        reselect = GTK_LIST_BOX_ROW (row);
+      else if (target_sam && g_str_equal (sbv_user_get_sam (user) ?: "", target_sam))
+        reselect = GTK_LIST_BOX_ROW (row);
+    }
     g_object_unref (user);
   }
 
   g_object_unref (store);
-  g_free (selected_sam);
+  g_free (target_dn);
+  g_free (target_sam);
 
   gtk_stack_set_visible_child_name (GTK_STACK (self->outer_stack),
                                      n == 0 ? "empty" : "split");
@@ -943,6 +964,7 @@ sbv_users_panel_finalize (GObject *object)
 {
   SbvUsersPanel *self = SBV_USERS_PANEL (object);
   g_free (self->filter_text);
+  g_free (self->pending_select_dn);
   g_clear_object (&self->selected_user);
   G_OBJECT_CLASS (sbv_users_panel_parent_class)->finalize (object);
 }
