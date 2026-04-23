@@ -45,14 +45,17 @@ can pick it up later without re-litigating decisions.
 - `groupType` AD bits exported from `sbv-groups-backend.h` so the dialog
   doesn't redefine them.
 
-### 3. Add/delete computers
-- Create-computer dialog (cn → derives sAMAccountName=`cn$`, optional
-  dNSHostName, container DN).
-- Default container: `CN=Computers,<base>`, with override.
-- Set `userAccountControl=WORKSTATION_TRUST_ACCOUNT (0x1000)` on create;
-  allow created-disabled (add `ACCOUNTDISABLE` bit).
-- Delete action with **type-to-confirm** (sAMAccountName).
-- Backend: `ldap_add_ext_s`, `ldap_delete_ext_s`.
+### 3. Add/delete computers  *(DONE — 0.1.3)*
+- Backend: `sbv_computers_create_async` (ldap_add_ext_s with
+  `userAccountControl=WORKSTATION_TRUST_ACCOUNT|ACCOUNTDISABLE`) +
+  `sbv_computers_delete_async` (ldap_delete_ext_s).
+- Create dialog `ui/sbv-create-computer-dialog.{h,c}`: computer name
+  (auto-derives sAMAccountName=`<name>$`), optional DNS hostname,
+  description, container DN (defaults to `CN=Computers,<base>`).
+- Delete: "Delete Computer…" button in a Danger Zone section. Type-to-confirm
+  requires the full sAMAccountName (including trailing `$`).
+- Auto-select the just-created computer in the list (DN-based reselection,
+  same pattern as users).
 
 ## RFC2307 / POSIX
 

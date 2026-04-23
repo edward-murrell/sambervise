@@ -43,6 +43,7 @@ add_executable(sambervise
     ui/sbv-computers-panel.c
     ui/sbv-create-user-dialog.c
     ui/sbv-create-group-dialog.c
+    ui/sbv-create-computer-dialog.c
     ${GRESOURCE_C}
 )
 

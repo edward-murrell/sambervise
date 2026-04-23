@@ -7,7 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define UAC_ACCOUNTDISABLE 0x0002
+#define UAC_ACCOUNTDISABLE          0x0002
+#define UAC_WORKSTATION_TRUST_ACCT  0x1000
 
 /* ── List computers ─────────────────────────────────────────────────────── */
 
@@ -353,6 +354,191 @@ gboolean
 sbv_computers_update_attrs_finish (SbvConnection *conn,
                                     GAsyncResult  *result,
                                     GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ── Create computer ────────────────────────────────────────────────────── */
+
+typedef struct {
+  char *cn;
+  char *dns_hostname;
+  char *description;
+  char *container_dn;
+} CreateComputerData;
+
+/* Frees CreateComputerData previously passed via g_task_set_task_data. */
+static void
+create_computer_data_free (CreateComputerData *d)
+{
+  g_free (d->cn);
+  g_free (d->dns_hostname);
+  g_free (d->description);
+  g_free (d->container_dn);
+  g_free (d);
+}
+
+/* Worker thread: builds the LDAP entry and issues ldap_add_ext_s for a
+ * new computer account. sAMAccountName is `<cn>$` per AD convention. The
+ * account is created disabled and gets the WORKSTATION_TRUST_ACCOUNT bit
+ * so AD treats it as a member workstation. */
+static void
+create_computer_thread (GTask *task, gpointer source, gpointer task_data,
+                        GCancellable *cancellable)
+{
+  SbvConnection      *conn = SBV_CONNECTION (source);
+  CreateComputerData *d    = task_data;
+  (void) cancellable;
+
+  LDAP *ld = sbv_connection_acquire_ldap (conn);
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  char *dn  = g_strdup_printf ("CN=%s,%s", d->cn, d->container_dn);
+  char *sam = g_strdup_printf ("%s$", d->cn);
+
+  char uac_buf[16];
+  g_snprintf (uac_buf, sizeof uac_buf, "%d",
+              UAC_WORKSTATION_TRUST_ACCT | UAC_ACCOUNTDISABLE);
+
+  char *oc_vals[]   = { "top", "person", "organizationalPerson",
+                        "user", "computer", NULL };
+  char *cn_vals[]   = { d->cn, NULL };
+  char *sam_vals[]  = { sam, NULL };
+  char *uac_vals[]  = { uac_buf, NULL };
+  char *dns_vals[]  = { d->dns_hostname, NULL };
+  char *desc_vals[] = { d->description, NULL };
+
+  LDAPMod oc_mod   = { LDAP_MOD_ADD, "objectClass",        { .modv_strvals = oc_vals  } };
+  LDAPMod cn_mod   = { LDAP_MOD_ADD, "cn",                 { .modv_strvals = cn_vals  } };
+  LDAPMod sam_mod  = { LDAP_MOD_ADD, "sAMAccountName",     { .modv_strvals = sam_vals } };
+  LDAPMod uac_mod  = { LDAP_MOD_ADD, "userAccountControl", { .modv_strvals = uac_vals } };
+  LDAPMod dns_mod  = { LDAP_MOD_ADD, "dNSHostName",        { .modv_strvals = dns_vals } };
+  LDAPMod desc_mod = { LDAP_MOD_ADD, "description",        { .modv_strvals = desc_vals } };
+
+  LDAPMod *mods[7];
+  int      n = 0;
+  mods[n++] = &oc_mod;
+  mods[n++] = &cn_mod;
+  mods[n++] = &sam_mod;
+  mods[n++] = &uac_mod;
+  if (d->dns_hostname && *d->dns_hostname) mods[n++] = &dns_mod;
+  if (d->description  && *d->description)  mods[n++] = &desc_mod;
+  mods[n] = NULL;
+
+  int rc = ldap_add_ext_s (ld, dn, mods, NULL, NULL);
+  g_free (sam);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS) {
+    g_free (dn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Create failed: %s", ldap_err2string (rc));
+    return;
+  }
+
+  g_task_return_pointer (task, dn, g_free);
+}
+
+/* Public entry — see header. Validates required fields and dispatches to a
+ * worker thread. */
+void
+sbv_computers_create_async (SbvConnection       *conn,
+                             const char          *cn,
+                             const char          *dns_hostname,
+                             const char          *description,
+                             const char          *container_dn,
+                             GCancellable        *cancellable,
+                             GAsyncReadyCallback  callback,
+                             gpointer             user_data)
+{
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+
+  if (!cn || !*cn || !container_dn || !*container_dn) {
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Computer name and container are required");
+    g_object_unref (task);
+    return;
+  }
+
+  CreateComputerData *d = g_new0 (CreateComputerData, 1);
+  d->cn           = g_strdup (cn);
+  d->dns_hostname = g_strdup (dns_hostname);
+  d->description  = g_strdup (description);
+  d->container_dn = g_strdup (container_dn);
+
+  g_task_set_task_data (task, d, (GDestroyNotify) create_computer_data_free);
+  g_task_run_in_thread (task, create_computer_thread);
+  g_object_unref (task);
+}
+
+/* Returns the DN of the newly-created computer (caller frees) or NULL on
+ * error. */
+char *
+sbv_computers_create_finish (SbvConnection *conn,
+                              GAsyncResult  *result,
+                              GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/* ── Delete computer ────────────────────────────────────────────────────── */
+
+/* Worker thread: issues a single ldap_delete_ext_s call. */
+static void
+delete_computer_thread (GTask *task, gpointer source, gpointer task_data,
+                        GCancellable *cancellable)
+{
+  SbvConnection *conn = SBV_CONNECTION (source);
+  char          *dn   = task_data;
+  (void) cancellable;
+
+  LDAP *ld = sbv_connection_acquire_ldap (conn);
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  int rc = ldap_delete_ext_s (ld, dn, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Delete failed: %s", ldap_err2string (rc));
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+/* Public entry — schedules the delete on a worker thread. The computer's
+ * DN is captured at call time so the SbvComputer may be freed before
+ * completion. */
+void
+sbv_computers_delete_async (SbvConnection       *conn,
+                             SbvComputer         *computer,
+                             GCancellable        *cancellable,
+                             GAsyncReadyCallback  callback,
+                             gpointer             user_data)
+{
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+  g_task_set_task_data (task, g_strdup (sbv_computer_get_dn (computer)),
+                         g_free);
+  g_task_run_in_thread (task, delete_computer_thread);
+  g_object_unref (task);
+}
+
+/* Reports success/failure of a previously-scheduled delete. */
+gboolean
+sbv_computers_delete_finish (SbvConnection *conn,
+                              GAsyncResult  *result,
+                              GError       **error)
 {
   (void) conn;
   return g_task_propagate_boolean (G_TASK (result), error);

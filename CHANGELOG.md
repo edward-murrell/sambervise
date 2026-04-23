@@ -5,6 +5,18 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-04-24
+
+### Added
+- Create computer: "+" button on the computers panel opens a dialog for
+  computer name (auto-derives `sAMAccountName=<name>$`), DNS hostname,
+  description, and container DN (defaults to `CN=Computers,<base>`). New
+  accounts are created with `userAccountControl=WORKSTATION_TRUST_ACCOUNT |
+  ACCOUNTDISABLE`.
+- Delete computer: "Delete Computer…" button in a Danger Zone section on the
+  computer detail page; type-to-confirm modal requires the account name
+  (including the trailing `$`).
+
 ## [0.1.2] - 2026-04-22
 
 ### Added
