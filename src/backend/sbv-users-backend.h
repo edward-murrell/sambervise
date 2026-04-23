@@ -15,6 +15,40 @@ GListStore *sbv_users_list_finish (SbvConnection *conn,
                                    GAsyncResult  *result,
                                    GError       **error);
 
+/* Create a new user account in the supplied container.
+ *
+ * The created account is **disabled** with no password set; the caller is
+ * expected to use the existing password / enable flows afterwards. The DN
+ * built is `CN=<cn>,<container_dn>`.
+ *
+ * Required: sam, cn, container_dn. Optional (NULL/empty allowed):
+ * given_name, sn.
+ *
+ * On success, returns the DN of the new object via finish() (caller frees). */
+void   sbv_users_create_async  (SbvConnection       *conn,
+                                 const char          *sam,
+                                 const char          *cn,
+                                 const char          *given_name,
+                                 const char          *sn,
+                                 const char          *container_dn,
+                                 GCancellable        *cancellable,
+                                 GAsyncReadyCallback  callback,
+                                 gpointer             user_data);
+char  *sbv_users_create_finish (SbvConnection *conn,
+                                 GAsyncResult  *result,
+                                 GError       **error);
+
+/* Permanently delete a user account by DN. Irreversible (no recycle bin
+ * support yet). */
+void     sbv_users_delete_async  (SbvConnection       *conn,
+                                   SbvUser             *user,
+                                   GCancellable        *cancellable,
+                                   GAsyncReadyCallback  callback,
+                                   gpointer             user_data);
+gboolean sbv_users_delete_finish (SbvConnection *conn,
+                                   GAsyncResult  *result,
+                                   GError       **error);
+
 /* Enable or disable a user account by modifying userAccountControl. */
 void     sbv_users_set_enabled_async  (SbvConnection       *conn,
                                         SbvUser             *user,

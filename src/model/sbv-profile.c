@@ -11,6 +11,10 @@ struct _SbvProfile {
   gboolean     use_tls;
   gboolean     use_ldaps;
   gboolean     skip_cert;
+  gint64       uid_min;   /* -1 = unset */
+  gint64       uid_max;   /* -1 = unset */
+  gint64       gid_min;   /* -1 = unset */
+  gint64       gid_max;   /* -1 = unset */
 };
 
 G_DEFINE_TYPE (SbvProfile, sbv_profile, G_TYPE_OBJECT)
@@ -37,6 +41,10 @@ sbv_profile_init (SbvProfile *self)
 {
   self->port      = 389;
   self->auth_type = SBV_AUTH_KERBEROS;
+  self->uid_min   = -1;
+  self->uid_max   = -1;
+  self->gid_min   = -1;
+  self->gid_max   = -1;
 }
 
 SbvProfile *
@@ -58,6 +66,10 @@ sbv_profile_copy (SbvProfile *self)
   copy->use_tls   = self->use_tls;
   copy->use_ldaps = self->use_ldaps;
   copy->skip_cert = self->skip_cert;
+  copy->uid_min   = self->uid_min;
+  copy->uid_max   = self->uid_max;
+  copy->gid_min   = self->gid_min;
+  copy->gid_max   = self->gid_max;
   return copy;
 }
 
@@ -70,6 +82,10 @@ const char  *sbv_profile_get_bind_dn   (SbvProfile *self) { return self->bind_dn
 gboolean     sbv_profile_get_use_tls   (SbvProfile *self) { return self->use_tls; }
 gboolean     sbv_profile_get_use_ldaps (SbvProfile *self) { return self->use_ldaps; }
 gboolean     sbv_profile_get_skip_cert (SbvProfile *self) { return self->skip_cert; }
+gint64       sbv_profile_get_uid_min   (SbvProfile *self) { return self->uid_min; }
+gint64       sbv_profile_get_uid_max   (SbvProfile *self) { return self->uid_max; }
+gint64       sbv_profile_get_gid_min   (SbvProfile *self) { return self->gid_min; }
+gint64       sbv_profile_get_gid_max   (SbvProfile *self) { return self->gid_max; }
 
 void sbv_profile_set_name      (SbvProfile *self, const char *v) { g_free (self->name);    self->name    = g_strdup (v); }
 void sbv_profile_set_host      (SbvProfile *self, const char *v) { g_free (self->host);    self->host    = g_strdup (v); }
@@ -80,3 +96,7 @@ void sbv_profile_set_bind_dn   (SbvProfile *self, const char *v) { g_free (self-
 void sbv_profile_set_use_tls   (SbvProfile *self, gboolean    v) { self->use_tls   = v; }
 void sbv_profile_set_use_ldaps (SbvProfile *self, gboolean    v) { self->use_ldaps = v; }
 void sbv_profile_set_skip_cert (SbvProfile *self, gboolean    v) { self->skip_cert = v; }
+void sbv_profile_set_uid_min   (SbvProfile *self, gint64      v) { self->uid_min   = v; }
+void sbv_profile_set_uid_max   (SbvProfile *self, gint64      v) { self->uid_max   = v; }
+void sbv_profile_set_gid_min   (SbvProfile *self, gint64      v) { self->gid_min   = v; }
+void sbv_profile_set_gid_max   (SbvProfile *self, gint64      v) { self->gid_max   = v; }

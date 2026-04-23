@@ -60,6 +60,22 @@ sbv_profiles_load (GError **error)
     sbv_profile_set_use_ldaps (p, g_key_file_get_boolean (kf, name, "use-ldaps", NULL));
     sbv_profile_set_skip_cert (p, g_key_file_get_boolean (kf, name, "skip-cert", NULL));
 
+    /* POSIX ID range (any missing key leaves the field at -1 = unset). */
+    {
+      static const struct { const char *key; void (*setter)(SbvProfile *, gint64); } id_keys[] = {
+        { "uid-min", sbv_profile_set_uid_min },
+        { "uid-max", sbv_profile_set_uid_max },
+        { "gid-min", sbv_profile_set_gid_min },
+        { "gid-max", sbv_profile_set_gid_max },
+      };
+      for (size_t k = 0; k < G_N_ELEMENTS (id_keys); k++) {
+        GError *e = NULL;
+        gint64 v = g_key_file_get_int64 (kf, name, id_keys[k].key, &e);
+        if (!e) id_keys[k].setter (p, v);
+        else    g_clear_error (&e);
+      }
+    }
+
     g_list_store_append (store, p);
     g_object_unref (p);
   }
@@ -97,6 +113,16 @@ sbv_profiles_save (GListStore *store, GError **error)
     g_key_file_set_boolean (kf, name, "use-tls",   sbv_profile_get_use_tls (p));
     g_key_file_set_boolean (kf, name, "use-ldaps", sbv_profile_get_use_ldaps (p));
     g_key_file_set_boolean (kf, name, "skip-cert", sbv_profile_get_skip_cert (p));
+
+    /* Only write range keys that are actually set. */
+    if (sbv_profile_get_uid_min (p) >= 0)
+      g_key_file_set_int64 (kf, name, "uid-min", sbv_profile_get_uid_min (p));
+    if (sbv_profile_get_uid_max (p) >= 0)
+      g_key_file_set_int64 (kf, name, "uid-max", sbv_profile_get_uid_max (p));
+    if (sbv_profile_get_gid_min (p) >= 0)
+      g_key_file_set_int64 (kf, name, "gid-min", sbv_profile_get_gid_min (p));
+    if (sbv_profile_get_gid_max (p) >= 0)
+      g_key_file_set_int64 (kf, name, "gid-max", sbv_profile_get_gid_max (p));
 
     g_object_unref (p);
   }

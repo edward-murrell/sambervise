@@ -16,3 +16,20 @@ foreach(T users groups computers)
     )
     add_test(NAME ${T} COMMAND test-${T})
 endforeach()
+
+# idmap test pulls in the connection backend so it can link sbv-idmap-hints.
+add_executable(test-idmap
+    test-idmap.c
+    ${TEST_COMMON}
+    ${CMAKE_SOURCE_DIR}/src/model/sbv-profile.c
+    ${CMAKE_SOURCE_DIR}/src/backend/sbv-idmap-hints.c
+    ${CMAKE_SOURCE_DIR}/src/backend/sbv-connection.c
+)
+target_include_directories(test-idmap PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(test-idmap PRIVATE
+    PkgConfig::GTK4
+    PkgConfig::ADW
+    ${LDAP_LIB}
+    ${LBER_LIB}
+)
+add_test(NAME idmap COMMAND test-idmap)

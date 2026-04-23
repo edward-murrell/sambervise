@@ -741,3 +741,188 @@ sbv_users_set_unix_attrs_finish (SbvConnection *conn,
   (void) conn;
   return g_task_propagate_boolean (G_TASK (result), error);
 }
+
+/* ── Create user ────────────────────────────────────────────────────────── */
+
+typedef struct {
+  char *sam;
+  char *cn;
+  char *given_name;
+  char *sn;
+  char *container_dn;
+} CreateUserData;
+
+/* Frees a CreateUserData struct previously passed via g_task_set_task_data. */
+static void
+create_user_data_free (CreateUserData *d)
+{
+  g_free (d->sam);
+  g_free (d->cn);
+  g_free (d->given_name);
+  g_free (d->sn);
+  g_free (d->container_dn);
+  g_free (d);
+}
+
+/* Worker thread: builds the LDAP entry and issues ldap_add_ext_s for a new
+ * disabled user account. Created with userAccountControl = NORMAL_ACCOUNT |
+ * ACCOUNTDISABLE so AD accepts the entry without requiring a password set in
+ * the same operation (which would need LDAPS/STARTTLS). */
+static void
+create_user_thread (GTask *task, gpointer source, gpointer task_data,
+                    GCancellable *cancellable)
+{
+  SbvConnection  *conn = SBV_CONNECTION (source);
+  CreateUserData *d    = task_data;
+  (void) cancellable;
+
+  LDAP *ld = sbv_connection_acquire_ldap (conn);
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  char *dn = g_strdup_printf ("CN=%s,%s", d->cn, d->container_dn);
+
+  /* Build attribute set. AD requires sAMAccountName and userAccountControl
+   * for user objects; objectClass list mirrors what AD assigns by default. */
+  char *oc_vals[]   = { "top", "person", "organizationalPerson", "user", NULL };
+  char *sam_vals[]  = { d->sam, NULL };
+  char  uac_buf[16];
+  g_snprintf (uac_buf, sizeof uac_buf, "%d",
+              UAC_NORMAL_ACCOUNT | UAC_ACCOUNTDISABLE);
+  char *uac_vals[]  = { uac_buf, NULL };
+  char *cn_vals[]   = { d->cn, NULL };
+  char *gn_vals[]   = { d->given_name, NULL };
+  char *sn_vals[]   = { d->sn, NULL };
+
+  LDAPMod  oc_mod   = { LDAP_MOD_ADD, "objectClass",        { .modv_strvals = oc_vals  } };
+  LDAPMod  sam_mod  = { LDAP_MOD_ADD, "sAMAccountName",     { .modv_strvals = sam_vals } };
+  LDAPMod  uac_mod  = { LDAP_MOD_ADD, "userAccountControl", { .modv_strvals = uac_vals } };
+  LDAPMod  cn_mod   = { LDAP_MOD_ADD, "cn",                 { .modv_strvals = cn_vals  } };
+  LDAPMod  gn_mod   = { LDAP_MOD_ADD, "givenName",          { .modv_strvals = gn_vals  } };
+  LDAPMod  sn_mod   = { LDAP_MOD_ADD, "sn",                 { .modv_strvals = sn_vals  } };
+
+  LDAPMod *mods[8];
+  int      n = 0;
+  mods[n++] = &oc_mod;
+  mods[n++] = &cn_mod;
+  mods[n++] = &sam_mod;
+  mods[n++] = &uac_mod;
+  if (d->given_name && *d->given_name) mods[n++] = &gn_mod;
+  if (d->sn         && *d->sn)         mods[n++] = &sn_mod;
+  mods[n] = NULL;
+
+  int rc = ldap_add_ext_s (ld, dn, mods, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS) {
+    g_free (dn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Create failed: %s", ldap_err2string (rc));
+    return;
+  }
+
+  g_task_return_pointer (task, dn, g_free);
+}
+
+/* Public entry point — see header. Validates required fields and dispatches
+ * to a worker thread. */
+void
+sbv_users_create_async (SbvConnection       *conn,
+                         const char          *sam,
+                         const char          *cn,
+                         const char          *given_name,
+                         const char          *sn,
+                         const char          *container_dn,
+                         GCancellable        *cancellable,
+                         GAsyncReadyCallback  callback,
+                         gpointer             user_data)
+{
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+
+  if (!sam || !*sam || !cn || !*cn || !container_dn || !*container_dn) {
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Username, full name and container are required");
+    g_object_unref (task);
+    return;
+  }
+
+  CreateUserData *d = g_new0 (CreateUserData, 1);
+  d->sam          = g_strdup (sam);
+  d->cn           = g_strdup (cn);
+  d->given_name   = g_strdup (given_name);
+  d->sn           = g_strdup (sn);
+  d->container_dn = g_strdup (container_dn);
+
+  g_task_set_task_data (task, d, (GDestroyNotify) create_user_data_free);
+  g_task_run_in_thread (task, create_user_thread);
+  g_object_unref (task);
+}
+
+/* Returns the DN of the newly-created user (caller frees) or NULL on error. */
+char *
+sbv_users_create_finish (SbvConnection *conn,
+                          GAsyncResult  *result,
+                          GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/* ── Delete user ────────────────────────────────────────────────────────── */
+
+/* Worker thread: issues a single ldap_delete_ext_s call. AD users normally
+ * have no children, so leaf delete is sufficient. */
+static void
+delete_user_thread (GTask *task, gpointer source, gpointer task_data,
+                    GCancellable *cancellable)
+{
+  SbvConnection *conn = SBV_CONNECTION (source);
+  char          *dn   = task_data;
+  (void) cancellable;
+
+  LDAP *ld = sbv_connection_acquire_ldap (conn);
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  int rc = ldap_delete_ext_s (ld, dn, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Delete failed: %s", ldap_err2string (rc));
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+/* Public entry — schedules the delete on a worker thread. The user's DN is
+ * captured at call time so the SbvUser may be freed before completion. */
+void
+sbv_users_delete_async (SbvConnection       *conn,
+                         SbvUser             *user,
+                         GCancellable        *cancellable,
+                         GAsyncReadyCallback  callback,
+                         gpointer             user_data)
+{
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+  g_task_set_task_data (task, g_strdup (sbv_user_get_dn (user)), g_free);
+  g_task_run_in_thread (task, delete_user_thread);
+  g_object_unref (task);
+}
+
+/* Reports success/failure of a previously-scheduled delete. */
+gboolean
+sbv_users_delete_finish (SbvConnection *conn,
+                          GAsyncResult  *result,
+                          GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_boolean (G_TASK (result), error);
+}

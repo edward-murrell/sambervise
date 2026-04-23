@@ -2,6 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Code style
+
+**Every function must have a brief comment above it explaining its intent.**
+Apply this to all new code in this repository (C source and headers, including
+`static` helpers). The goal is reader-orientation, not exhaustive
+documentation:
+
+- One short sentence — what the function is *for*, not how it works
+  line-by-line. The body explains the *how*.
+- Capture non-obvious context if any: an invariant the caller must satisfy,
+  ownership transfer of arguments/return values, threading expectations
+  (e.g. "runs on a `GTask` worker thread"), or LDAP error semantics.
+- Place the comment immediately above the function definition. For functions
+  declared in headers, prefer documenting at the declaration site so callers
+  see it; the definition can repeat or omit at your discretion.
+- Trivial getters/setters that just store a struct field can use a one-line
+  block comment grouping a section, rather than a comment per accessor.
+
 ## Release notes
 
 **Always update `CHANGELOG.md` when making user-visible changes.** The file is bundled into the Debian package at `/usr/share/doc/sambervise/CHANGELOG.md` and is referenced by `CPACK_PACKAGE_DESCRIPTION_FILE` in `CMakeLists.txt`, so it ships with every release.
@@ -52,6 +70,7 @@ tests/
 - `backend/sbv-users-backend.c` — user LDAP operations (list, enable/disable, password reset)
 - `backend/sbv-groups-backend.c` — group LDAP operations (list, add/remove members)
 - `backend/sbv-computers-backend.c` — computer LDAP operations (list `(objectClass=computer)`, enable/disable, update description and dNSHostName)
+- `backend/sbv-idmap-hints.c` — discovers POSIX UID/GID range hints. `SbvIdmapHints` struct merges per-profile range config (from `connections.ini`) with DC values read from `CN=ypservers,CN=ypServ30,CN=RpcServices,CN=System,<base>` (`msSFU30MaxUidNumber`/`msSFU30MaxGidNumber`). Used by upcoming UID/GID collision and auto-assignment features.
 
 ### Model types
 

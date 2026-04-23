@@ -34,12 +34,14 @@ add_executable(sambervise
     backend/sbv-users-backend.c
     backend/sbv-groups-backend.c
     backend/sbv-computers-backend.c
+    backend/sbv-idmap-hints.c
     ui/sbv-window.c
     ui/sbv-connect-dialog.c
     ui/sbv-password-dialog.c
     ui/sbv-users-panel.c
     ui/sbv-groups-panel.c
     ui/sbv-computers-panel.c
+    ui/sbv-create-user-dialog.c
     ${GRESOURCE_C}
 )
 

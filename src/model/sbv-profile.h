@@ -24,6 +24,11 @@ const char  *sbv_profile_get_bind_dn   (SbvProfile *self);
 gboolean     sbv_profile_get_use_tls   (SbvProfile *self);
 gboolean     sbv_profile_get_use_ldaps (SbvProfile *self);
 gboolean     sbv_profile_get_skip_cert (SbvProfile *self);
+/* Per-profile POSIX UID/GID range fallback (-1 = unset, use defaults) */
+gint64       sbv_profile_get_uid_min   (SbvProfile *self);
+gint64       sbv_profile_get_uid_max   (SbvProfile *self);
+gint64       sbv_profile_get_gid_min   (SbvProfile *self);
+gint64       sbv_profile_get_gid_max   (SbvProfile *self);
 
 void sbv_profile_set_name      (SbvProfile *self, const char *name);
 void sbv_profile_set_host      (SbvProfile *self, const char *host);
@@ -34,5 +39,9 @@ void sbv_profile_set_bind_dn   (SbvProfile *self, const char *bind_dn);
 void sbv_profile_set_use_tls   (SbvProfile *self, gboolean use_tls);
 void sbv_profile_set_use_ldaps (SbvProfile *self, gboolean use_ldaps);
 void sbv_profile_set_skip_cert (SbvProfile *self, gboolean skip_cert);
+void sbv_profile_set_uid_min   (SbvProfile *self, gint64 v);
+void sbv_profile_set_uid_max   (SbvProfile *self, gint64 v);
+void sbv_profile_set_gid_min   (SbvProfile *self, gint64 v);
+void sbv_profile_set_gid_max   (SbvProfile *self, gint64 v);
 
 G_END_DECLS

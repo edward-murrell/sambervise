@@ -1,4 +1,5 @@
 #include "sbv-users-panel.h"
+#include "sbv-create-user-dialog.h"
 #include "../backend/sbv-users-backend.h"
 #include "../model/sbv-user.h"
 
@@ -15,6 +16,7 @@ struct _SbvUsersPanel {
   /* ── List pane ── */
   GtkWidget     *outer_stack;    /* "loading" | "empty" | "split" */
   GtkWidget     *search_entry;
+  GtkWidget     *add_btn;
   GtkWidget     *list_box;
   GtkWidget     *spinner;
 
@@ -56,6 +58,10 @@ struct _SbvUsersPanel {
   /* Save attributes */
   GtkWidget     *save_btn;
   GtkWidget     *save_error;
+
+  /* Delete */
+  GtkWidget     *delete_btn;
+  GtkWidget     *delete_error;
 
   /* Password */
   GtkWidget     *new_pw_entry;
@@ -268,9 +274,11 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
   gtk_label_set_text (GTK_LABEL (self->save_error),   "");
   gtk_label_set_text (GTK_LABEL (self->pw_error),     "");
   gtk_label_set_text (GTK_LABEL (self->policy_error), "");
+  gtk_label_set_text (GTK_LABEL (self->delete_error), "");
   gtk_widget_set_visible (self->save_error,   FALSE);
   gtk_widget_set_visible (self->pw_error,     FALSE);
   gtk_widget_set_visible (self->policy_error, FALSE);
+  gtk_widget_set_visible (self->delete_error, FALSE);
 
   gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "detail");
 }
@@ -550,6 +558,195 @@ on_save_policy_clicked (GtkButton *btn, gpointer user_data)
                                        NULL, on_save_policy_done, self);
 }
 
+/* ── Create / Delete ────────────────────────────────────────────────────── */
+
+/* Called when the create-user dialog finishes successfully. Refreshes the
+ * user list so the new entry appears (it will be re-selected if its sam
+ * matches the previously-selected one — usually it won't, so the new entry
+ * just shows up unselected). */
+static void
+on_user_created (SbvConnection *conn, const char *new_dn, gpointer user_data)
+{
+  (void) new_dn;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  sbv_users_panel_load (self, conn);
+}
+
+/* Toolbar "+" button: opens the create-user dialog. */
+static void
+on_add_btn_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  if (!self->conn) return;
+
+  GtkWidget *parent = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  sbv_create_user_dialog_show (parent ? GTK_WINDOW (parent) : NULL,
+                                self->conn, on_user_created, self);
+}
+
+/* Async-completion callback for the user delete operation. On error the
+ * detail pane shows the message; on success the list is reloaded and the
+ * selection is dropped (the formerly-selected row no longer exists). */
+static void
+on_delete_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  SbvConnection *conn = SBV_CONNECTION (source);
+  GError        *err  = NULL;
+
+  gtk_widget_set_sensitive (self->delete_btn, TRUE);
+
+  if (!sbv_users_delete_finish (conn, result, &err)) {
+    gtk_label_set_text (GTK_LABEL (self->delete_error), err->message);
+    gtk_widget_set_visible (self->delete_error, TRUE);
+    g_error_free (err);
+    return;
+  }
+
+  /* Drop the now-stale selection so the list reload doesn't try to
+   * re-select a deleted entry. */
+  g_clear_object (&self->selected_user);
+  sbv_users_panel_load (self, conn);
+}
+
+/* Type-to-confirm dialog state. Lives until the dialog destroys. */
+typedef struct {
+  SbvUsersPanel *panel;
+  GtkWindow     *dialog;
+  GtkWidget     *entry;
+  GtkWidget     *delete_btn;
+  char          *expected_sam;
+} ConfirmDelCtx;
+
+/* Frees the per-dialog context. */
+static void
+confirm_del_ctx_free (ConfirmDelCtx *ctx)
+{
+  g_free (ctx->expected_sam);
+  g_free (ctx);
+}
+
+/* Enables the destructive button only when the typed text exactly matches
+ * the target's sAMAccountName. */
+static void
+on_confirm_entry_changed (GtkEditable *editable, gpointer user_data)
+{
+  ConfirmDelCtx *ctx   = user_data;
+  const char    *typed = gtk_editable_get_text (editable);
+  gtk_widget_set_sensitive (ctx->delete_btn,
+                             g_str_equal (typed, ctx->expected_sam));
+}
+
+/* Confirm-button handler: dispatches the delete and closes the dialog. */
+static void
+on_confirm_delete_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  ConfirmDelCtx *ctx  = user_data;
+  SbvUsersPanel *self = ctx->panel;
+  if (!self->conn || !self->selected_user) {
+    gtk_window_destroy (ctx->dialog);
+    return;
+  }
+
+  gtk_widget_set_visible (self->delete_error, FALSE);
+  gtk_widget_set_sensitive (self->delete_btn, FALSE);
+
+  sbv_users_delete_async (self->conn, self->selected_user,
+                           NULL, on_delete_done, self);
+  gtk_window_destroy (ctx->dialog);
+}
+
+/* Builds and presents the type-to-confirm modal. */
+static void
+show_delete_confirm (SbvUsersPanel *self)
+{
+  if (!self->selected_user) return;
+  const char *sam = sbv_user_get_sam (self->selected_user);
+  if (!sam || !*sam) return;
+
+  ConfirmDelCtx *ctx = g_new0 (ConfirmDelCtx, 1);
+  ctx->panel        = self;
+  ctx->expected_sam = g_strdup (sam);
+
+  GtkWidget *win = gtk_window_new ();
+  gtk_window_set_title (GTK_WINDOW (win), "Delete User");
+  gtk_window_set_modal (GTK_WINDOW (win), TRUE);
+  gtk_window_set_default_size (GTK_WINDOW (win), 420, 220);
+  GtkWidget *parent = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  if (parent) gtk_window_set_transient_for (GTK_WINDOW (win),
+                                             GTK_WINDOW (parent));
+  ctx->dialog = GTK_WINDOW (win);
+
+  GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+
+  GtkWidget *header = adw_header_bar_new ();
+  adw_header_bar_set_show_end_title_buttons (ADW_HEADER_BAR (header), FALSE);
+
+  GtkWidget *cancel_btn = gtk_button_new_with_label ("Cancel");
+  adw_header_bar_pack_start (ADW_HEADER_BAR (header), cancel_btn);
+  g_signal_connect_swapped (cancel_btn, "clicked",
+                             G_CALLBACK (gtk_window_destroy), win);
+
+  ctx->delete_btn = gtk_button_new_with_label ("Delete");
+  gtk_widget_add_css_class (ctx->delete_btn, "destructive-action");
+  gtk_widget_set_sensitive (ctx->delete_btn, FALSE);
+  adw_header_bar_pack_end (ADW_HEADER_BAR (header), ctx->delete_btn);
+  g_signal_connect (ctx->delete_btn, "clicked",
+                    G_CALLBACK (on_confirm_delete_clicked), ctx);
+
+  gtk_box_append (GTK_BOX (vbox), header);
+
+  GtkWidget *body = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
+  gtk_widget_set_margin_top    (body, 16);
+  gtk_widget_set_margin_bottom (body, 16);
+  gtk_widget_set_margin_start  (body, 20);
+  gtk_widget_set_margin_end    (body, 20);
+
+  char *warn_text = g_strdup_printf (
+    "Permanently delete user <b>%s</b>?\n"
+    "This cannot be undone.", sam);
+  GtkWidget *warn = gtk_label_new (NULL);
+  gtk_label_set_markup (GTK_LABEL (warn), warn_text);
+  gtk_label_set_xalign (GTK_LABEL (warn), 0);
+  gtk_label_set_wrap   (GTK_LABEL (warn), TRUE);
+  g_free (warn_text);
+  gtk_box_append (GTK_BOX (body), warn);
+
+  char *prompt_text = g_strdup_printf (
+    "Type the username (<tt>%s</tt>) to confirm:", sam);
+  GtkWidget *prompt = gtk_label_new (NULL);
+  gtk_label_set_markup (GTK_LABEL (prompt), prompt_text);
+  gtk_label_set_xalign (GTK_LABEL (prompt), 0);
+  gtk_widget_add_css_class (prompt, "dim-label");
+  gtk_widget_set_margin_top (prompt, 4);
+  g_free (prompt_text);
+  gtk_box_append (GTK_BOX (body), prompt);
+
+  ctx->entry = gtk_entry_new ();
+  gtk_widget_add_css_class (ctx->entry, "monospace");
+  g_signal_connect (ctx->entry, "changed",
+                    G_CALLBACK (on_confirm_entry_changed), ctx);
+  gtk_box_append (GTK_BOX (body), ctx->entry);
+
+  gtk_box_append (GTK_BOX (vbox), body);
+
+  gtk_window_set_child (GTK_WINDOW (win), vbox);
+  g_signal_connect_swapped (win, "destroy",
+                             G_CALLBACK (confirm_del_ctx_free), ctx);
+  gtk_window_present (GTK_WINDOW (win));
+  gtk_widget_grab_focus (ctx->entry);
+}
+
+/* Detail-pane "Delete" button: routes to the type-to-confirm dialog. */
+static void
+on_delete_btn_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  show_delete_confirm (SBV_USERS_PANEL (user_data));
+}
+
 /* ── Load callback ──────────────────────────────────────────────────────── */
 
 static void
@@ -805,6 +1002,13 @@ sbv_users_panel_init (SbvUsersPanel *self)
     g_signal_connect (self->search_entry, "search-changed",
                       G_CALLBACK (on_search_changed), self);
     gtk_box_append (GTK_BOX (toolbar), self->search_entry);
+
+    self->add_btn = gtk_button_new_from_icon_name ("list-add-symbolic");
+    gtk_widget_add_css_class (self->add_btn, "flat");
+    gtk_widget_set_tooltip_text (self->add_btn, "Create user");
+    g_signal_connect (self->add_btn, "clicked",
+                      G_CALLBACK (on_add_btn_clicked), self);
+    gtk_box_append (GTK_BOX (toolbar), self->add_btn);
 
     gtk_box_append (GTK_BOX (left_box), toolbar);
     gtk_box_append (GTK_BOX (left_box),
@@ -1071,6 +1275,33 @@ sbv_users_panel_init (SbvUsersPanel *self)
 
     self->raw_attrs_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_append (GTK_BOX (form), self->raw_attrs_box);
+
+    /* ── Danger zone ── */
+    gtk_box_append (GTK_BOX (form),
+                    gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append (GTK_BOX (form), make_section_label ("Danger Zone"));
+
+    {
+      GtkWidget *del_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+      gtk_widget_set_margin_top (del_box, 4);
+
+      self->delete_btn = gtk_button_new_with_label ("Delete User…");
+      gtk_widget_add_css_class (self->delete_btn, "destructive-action");
+      gtk_widget_set_halign (self->delete_btn, GTK_ALIGN_START);
+      gtk_widget_set_margin_start (self->delete_btn, 148);
+      g_signal_connect (self->delete_btn, "clicked",
+                        G_CALLBACK (on_delete_btn_clicked), self);
+      gtk_box_append (GTK_BOX (del_box), self->delete_btn);
+
+      self->delete_error = gtk_label_new ("");
+      gtk_label_set_xalign (GTK_LABEL (self->delete_error), 0);
+      gtk_label_set_wrap (GTK_LABEL (self->delete_error), TRUE);
+      gtk_widget_add_css_class (self->delete_error, "error");
+      gtk_widget_set_margin_start (self->delete_error, 148);
+      gtk_widget_set_visible (self->delete_error, FALSE);
+      gtk_box_append (GTK_BOX (del_box), self->delete_error);
+      gtk_box_append (GTK_BOX (form), del_box);
+    }
 
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (detail_scroll), form);
     gtk_stack_add_named (GTK_STACK (self->detail_stack), detail_scroll, "detail");
