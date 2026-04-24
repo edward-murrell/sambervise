@@ -59,24 +59,36 @@ can pick it up later without re-litigating decisions.
 
 ## RFC2307 / POSIX
 
-### 4. UID/GID collision detection
-- Live-as-you-type validation on the uidNumber/gidNumber entries in the user
-  and group panels. Debounce ~250 ms.
-- Query the current connection's tree only:
-  - `(&(objectClass=user)(uidNumber=<n>))` excluding the current DN
-  - `(&(objectClass=group)(gidNumber=<n>))` excluding the current DN
-- Show inline warning under the field when a collision is found, including the
-  conflicting object's DN. Save still allowed (warn, don't block) — admin may
-  intentionally reuse.
-- Cache results per session to avoid hammering the DC on every keystroke.
+### 4. UID/GID collision detection  *(DONE — 0.1.3)*
+- Backend: `backend/sbv-collisions.{h,c}` —
+  `sbv_collisions_uid_check_async` (filter
+  `(&(objectClass=user)(uidNumber=<n>))`) and
+  `sbv_collisions_gid_check_async` (filter
+  `(&(objectClass=group)(gidNumber=<n>))`). Both exclude a caller-supplied
+  DN and return a `GPtrArray<SbvCollisionHit*>`.
+- Users panel: rfc_uid_entry / rfc_gid_entry get debounced (~350 ms)
+  collision checks; inline warning labels under each entry name the first
+  two conflicts (with "+N more" if there are more). Save still allowed —
+  warn, don't block.
+- Groups panel: same wiring on rfc_gid_entry.
+- Per-keystroke caching deferred — the debounce + race-cancel (drop result
+  if the entry text has changed since the request) was sufficient for v1.
+  Revisit if DC traffic becomes noticeable.
 
-### 5. UID/GID auto-assignment
-- "Suggest next" button next to the UID and GID entries.
-- Range source: read from the well-known LDAP locations exposed by item #0;
-  fall back to the per-profile range stored in `connections.ini`.
-- Algorithm: scan existing `uidNumber`/`gidNumber` values within the
-  configured range and return the lowest unused integer. Prefer
-  `next_uid_hint`/`next_gid_hint` if the DC publishes one.
+### 5. UID/GID auto-assignment  *(DONE — 0.1.4)*
+- Backend: `sbv_collisions_next_free_uid_async/finish` and
+  `_gid_async/finish` — bounded LDAP search over `[range_min, range_max]`
+  for the chosen attribute, sort taken values, return the first gap (-1
+  if exhausted).
+- "Suggest" button next to each UID/GID entry on the user panel and the
+  GID entry on the group panel. First press triggers a one-shot
+  `sbv_idmap_hints_query_async` to load the range, cached per-connection
+  thereafter; subsequent presses just run the next-free scan.
+- If the DC publishes `msSFU30MaxUidNumber/MaxGidNumber`, the scan starts
+  from there to shorten the work the DC has to do.
+- Side benefit: required `SbvConnection` to retain the bound `SbvProfile`
+  (new `sbv_connection_get_profile` accessor) so panels don't need a
+  separate profile parameter.
 
 ## LDAP browser
 

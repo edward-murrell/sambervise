@@ -21,15 +21,16 @@ typedef struct {
 #define SBV_SASL_CB_LIST_END 0UL
 
 struct _SbvConnection {
-  GObject  parent;
+  GObject     parent;
 
-  GMutex   mutex;
-  LDAP    *ld;
+  GMutex      mutex;
+  LDAP       *ld;
 
-  char    *host;
-  char    *base_dn;
-  int      port;
-  gboolean connected;
+  char       *host;
+  char       *base_dn;
+  int         port;
+  gboolean    connected;
+  SbvProfile *profile;   /* owned ref to the profile we're bound with     */
 };
 
 G_DEFINE_TYPE (SbvConnection, sbv_connection, G_TYPE_OBJECT)
@@ -44,6 +45,7 @@ sbv_connection_finalize (GObject *object)
   g_mutex_clear (&self->mutex);
   g_free (self->host);
   g_free (self->base_dn);
+  g_clear_object (&self->profile);
   G_OBJECT_CLASS (sbv_connection_parent_class)->finalize (object);
 }
 
@@ -71,6 +73,10 @@ const char *sbv_connection_get_host     (SbvConnection *self) { return self->hos
 const char *sbv_connection_get_base_dn  (SbvConnection *self) { return self->base_dn; }
 int         sbv_connection_get_port     (SbvConnection *self) { return self->port; }
 gboolean    sbv_connection_is_connected (SbvConnection *self) { return self->connected; }
+/* Returns the SbvProfile this connection was bound with, or NULL if the
+ * connection hasn't completed yet. The connection holds a ref; do not
+ * free. */
+SbvProfile *sbv_connection_get_profile  (SbvConnection *self) { return self->profile; }
 
 /* ── LDAP handle acquire/release ───────────────────────────────────────── */
 
@@ -222,6 +228,8 @@ connect_thread (GTask *task, gpointer source, gpointer task_data,
   self->port    = port;
   g_free (self->base_dn);
   self->base_dn = g_strdup (sbv_profile_get_base_dn (profile));
+  g_clear_object (&self->profile);
+  self->profile = g_object_ref (profile);
   g_mutex_unlock (&self->mutex);
 
   g_task_return_boolean (task, TRUE);

@@ -1,6 +1,8 @@
 #include "sbv-users-panel.h"
 #include "sbv-create-user-dialog.h"
 #include "../backend/sbv-users-backend.h"
+#include "../backend/sbv-collisions.h"
+#include "../backend/sbv-idmap-hints.h"
 #include "../model/sbv-user.h"
 
 #include <adwaita.h>
@@ -47,6 +49,15 @@ struct _SbvUsersPanel {
   GtkWidget     *rfc_gecos_entry;
   GtkWidget     *rfc_save_btn;
   GtkWidget     *rfc_error;
+  GtkWidget     *rfc_uid_collision; /* warning under uid entry */
+  GtkWidget     *rfc_gid_collision; /* warning under gid entry */
+  guint          uid_check_timer;   /* g_timeout_add id for uid debounce */
+  guint          gid_check_timer;   /* g_timeout_add id for gid debounce */
+  GtkWidget     *rfc_uid_suggest_btn;
+  GtkWidget     *rfc_gid_suggest_btn;
+  /* Cached idmap hints for the active connection. Loaded lazily on the
+   * first "Suggest" press; cleared by sbv_users_panel_load. */
+  SbvIdmapHints *idmap_hints;
 
   /* Raw LDAP attributes (dynamic, rebuilt on selection) */
   GtkWidget     *raw_attrs_box;
@@ -274,6 +285,19 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
   gtk_editable_set_text (GTK_EDITABLE (self->rfc_gecos_entry), gecos ? gecos : "");
   gtk_widget_set_visible (self->rfc_error, FALSE);
 
+  /* Cancel any in-flight collision debounce timers and clear the labels;
+   * the changed-handlers below will rearm with the freshly-loaded values. */
+  if (self->uid_check_timer) { g_source_remove (self->uid_check_timer); self->uid_check_timer = 0; }
+  if (self->gid_check_timer) { g_source_remove (self->gid_check_timer); self->gid_check_timer = 0; }
+  if (self->rfc_uid_collision) {
+    gtk_label_set_text (GTK_LABEL (self->rfc_uid_collision), "");
+    gtk_widget_set_visible (self->rfc_uid_collision, FALSE);
+  }
+  if (self->rfc_gid_collision) {
+    gtk_label_set_text (GTK_LABEL (self->rfc_gid_collision), "");
+    gtk_widget_set_visible (self->rfc_gid_collision, FALSE);
+  }
+
   /* Raw LDAP attributes */
   populate_raw_attrs (self->raw_attrs_box, sbv_user_get_ldap_attrs (user), 140);
 
@@ -316,6 +340,328 @@ on_acct_never_expires_toggled (GtkCheckButton *btn, gpointer user_data)
   SbvUsersPanel *self  = SBV_USERS_PANEL (user_data);
   gboolean       never = gtk_check_button_get_active (btn);
   gtk_widget_set_sensitive (self->expires_date_entry, !never);
+}
+
+/* ── UID/GID collision detection ────────────────────────────────────────── */
+
+/* Debounce window between the last keystroke and the LDAP probe. Short
+ * enough to feel live, long enough to avoid hammering the DC mid-typing. */
+#define COLLISION_DEBOUNCE_MS 350
+
+/* Renders a collision result into the supplied label. NULL or empty
+ * `hits` clears the label. */
+static void
+render_collision_label (GtkWidget *label, GPtrArray *hits, const char *kind)
+{
+  if (!hits || hits->len == 0) {
+    gtk_label_set_text (GTK_LABEL (label), "");
+    gtk_widget_set_visible (label, FALSE);
+    return;
+  }
+
+  /* Show up to two conflicts plus a "+N more" suffix if there are more. */
+  GString *s = g_string_new (NULL);
+  g_string_append_printf (s, "%s in use by ", kind);
+  guint shown = MIN (hits->len, 2u);
+  for (guint i = 0; i < shown; i++) {
+    SbvCollisionHit *h = g_ptr_array_index (hits, i);
+    if (i > 0) g_string_append (s, ", ");
+    g_string_append (s, h->sam ? h->sam : h->dn);
+  }
+  if (hits->len > shown)
+    g_string_append_printf (s, " (+%u more)", hits->len - shown);
+
+  gtk_label_set_text (GTK_LABEL (label), s->str);
+  gtk_widget_set_visible (label, TRUE);
+  g_string_free (s, TRUE);
+}
+
+/* Per-check context so the completion callback can find the right label
+ * and verify the user hasn't typed something else in the meantime. */
+typedef struct {
+  SbvUsersPanel *panel;
+  GtkWidget     *entry;          /* the input we read from on completion   */
+  GtkWidget     *label;          /* label to update                         */
+  const char    *kind;           /* "UID" or "GID" — used in label text     */
+  gint64         value;          /* value we asked the DC about             */
+  gboolean       is_uid;         /* TRUE → UID check, FALSE → GID           */
+} CollisionCtx;
+
+/* Async-completion callback for either UID or GID checks. Drops the result
+ * if the user has since typed a different value into the entry (the next
+ * debounce tick will issue a fresh check). */
+static void
+on_collision_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  CollisionCtx  *ctx  = user_data;
+  SbvConnection *conn = SBV_CONNECTION (source);
+  GError        *err  = NULL;
+
+  GPtrArray *hits = ctx->is_uid
+    ? sbv_collisions_uid_check_finish (conn, result, &err)
+    : sbv_collisions_gid_check_finish (conn, result, &err);
+
+  /* Only render if the entry still holds the same numeric value. */
+  const char *now_text = gtk_editable_get_text (GTK_EDITABLE (ctx->entry));
+  gint64 now_val = *now_text ? g_ascii_strtoll (now_text, NULL, 10) : -1;
+
+  if (now_val == ctx->value) {
+    if (hits)
+      render_collision_label (ctx->label, hits, ctx->kind);
+    else {
+      /* Search failed (e.g. transient network issue) — leave the label
+       * empty rather than alarming the user with a noisy message. */
+      gtk_label_set_text (GTK_LABEL (ctx->label), "");
+      gtk_widget_set_visible (ctx->label, FALSE);
+    }
+  }
+
+  if (hits) sbv_collision_hits_free (hits);
+  if (err)  g_error_free (err);
+  g_free (ctx);
+}
+
+/* Fires the UID collision check for whatever's currently in rfc_uid_entry. */
+static gboolean
+fire_uid_check (gpointer user_data)
+{
+  SbvUsersPanel *self = user_data;
+  self->uid_check_timer = 0;
+
+  if (!self->conn) return G_SOURCE_REMOVE;
+
+  const char *text = gtk_editable_get_text (GTK_EDITABLE (self->rfc_uid_entry));
+  if (!*text) {
+    gtk_label_set_text (GTK_LABEL (self->rfc_uid_collision), "");
+    gtk_widget_set_visible (self->rfc_uid_collision, FALSE);
+    return G_SOURCE_REMOVE;
+  }
+
+  gint64 uid = g_ascii_strtoll (text, NULL, 10);
+
+  CollisionCtx *ctx = g_new0 (CollisionCtx, 1);
+  ctx->panel  = self;
+  ctx->entry  = self->rfc_uid_entry;
+  ctx->label  = self->rfc_uid_collision;
+  ctx->kind   = "UID";
+  ctx->value  = uid;
+  ctx->is_uid = TRUE;
+
+  const char *exclude = self->selected_user
+    ? sbv_user_get_dn (self->selected_user) : NULL;
+
+  sbv_collisions_uid_check_async (self->conn, uid, exclude,
+                                   NULL, on_collision_done, ctx);
+  return G_SOURCE_REMOVE;
+}
+
+/* Fires the GID collision check for whatever's currently in rfc_gid_entry. */
+static gboolean
+fire_gid_check (gpointer user_data)
+{
+  SbvUsersPanel *self = user_data;
+  self->gid_check_timer = 0;
+
+  if (!self->conn) return G_SOURCE_REMOVE;
+
+  const char *text = gtk_editable_get_text (GTK_EDITABLE (self->rfc_gid_entry));
+  if (!*text) {
+    gtk_label_set_text (GTK_LABEL (self->rfc_gid_collision), "");
+    gtk_widget_set_visible (self->rfc_gid_collision, FALSE);
+    return G_SOURCE_REMOVE;
+  }
+
+  gint64 gid = g_ascii_strtoll (text, NULL, 10);
+
+  CollisionCtx *ctx = g_new0 (CollisionCtx, 1);
+  ctx->panel  = self;
+  ctx->entry  = self->rfc_gid_entry;
+  ctx->label  = self->rfc_gid_collision;
+  ctx->kind   = "GID";
+  ctx->value  = gid;
+  ctx->is_uid = FALSE;
+
+  /* The user's own DN isn't a meaningful exclusion when checking groups,
+   * but pass it through anyway — the filter is on group objects so a
+   * user DN will simply never match. */
+  sbv_collisions_gid_check_async (self->conn, gid, NULL,
+                                   NULL, on_collision_done, ctx);
+  return G_SOURCE_REMOVE;
+}
+
+/* "changed" handler on rfc_uid_entry: debounce a collision check. */
+static void
+on_uid_entry_changed (GtkEditable *e, gpointer user_data)
+{
+  (void) e;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  if (self->uid_check_timer)
+    g_source_remove (self->uid_check_timer);
+  self->uid_check_timer =
+    g_timeout_add (COLLISION_DEBOUNCE_MS, fire_uid_check, self);
+}
+
+/* "changed" handler on rfc_gid_entry: debounce a collision check. */
+static void
+on_gid_entry_changed (GtkEditable *e, gpointer user_data)
+{
+  (void) e;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  if (self->gid_check_timer)
+    g_source_remove (self->gid_check_timer);
+  self->gid_check_timer =
+    g_timeout_add (COLLISION_DEBOUNCE_MS, fire_gid_check, self);
+}
+
+/* ── UID/GID auto-assignment (Suggest buttons) ──────────────────────────── */
+
+/* Per-suggest context: which entry to fill once the next-free probe
+ * returns. */
+typedef struct {
+  SbvUsersPanel *panel;
+  GtkWidget     *entry;     /* rfc_uid_entry or rfc_gid_entry          */
+  GtkWidget     *button;    /* the suggest button to re-enable          */
+  gboolean       is_uid;    /* TRUE → uid scan, FALSE → gid scan        */
+} SuggestCtx;
+
+/* Async-completion: fill the entry with the suggested value and re-enable
+ * the button. The entry's "changed" handler will then run the existing
+ * collision check, which should report no collision for the value we
+ * picked. */
+static void
+on_suggest_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  SuggestCtx    *ctx  = user_data;
+  SbvConnection *conn = SBV_CONNECTION (source);
+  GError        *err  = NULL;
+
+  gint64 v = ctx->is_uid
+    ? sbv_collisions_next_free_uid_finish (conn, result, &err)
+    : sbv_collisions_next_free_gid_finish (conn, result, &err);
+
+  gtk_widget_set_sensitive (ctx->button, TRUE);
+
+  if (err) {
+    g_warning ("Suggest %s failed: %s", ctx->is_uid ? "UID" : "GID",
+                err->message);
+    g_error_free (err);
+  } else if (v < 0) {
+    g_warning ("Suggest %s: configured range exhausted",
+                ctx->is_uid ? "UID" : "GID");
+  } else {
+    char buf[32];
+    g_snprintf (buf, sizeof buf, "%" G_GINT64_FORMAT, v);
+    gtk_editable_set_text (GTK_EDITABLE (ctx->entry), buf);
+  }
+
+  g_free (ctx);
+}
+
+/* Issues the next-free scan using the (already-loaded) cached hints. */
+static void
+suggest_with_hints (SbvUsersPanel *self, gboolean is_uid,
+                    GtkWidget *entry, GtkWidget *button)
+{
+  gint64 lo = is_uid ? self->idmap_hints->uid_min : self->idmap_hints->gid_min;
+  gint64 hi = is_uid ? self->idmap_hints->uid_max : self->idmap_hints->gid_max;
+
+  /* Honour the next_*_hint published by the DC if it falls in range —
+   * starting the scan from the hint shortens the work the DC has to do
+   * and matches the DC's own bookkeeping. */
+  gint64 hint = is_uid ? self->idmap_hints->next_uid_hint
+                       : self->idmap_hints->next_gid_hint;
+  if (hint > lo && hint <= hi) lo = hint;
+
+  SuggestCtx *ctx = g_new0 (SuggestCtx, 1);
+  ctx->panel  = self;
+  ctx->entry  = entry;
+  ctx->button = button;
+  ctx->is_uid = is_uid;
+
+  if (is_uid)
+    sbv_collisions_next_free_uid_async (self->conn, lo, hi,
+                                         NULL, on_suggest_done, ctx);
+  else
+    sbv_collisions_next_free_gid_async (self->conn, lo, hi,
+                                         NULL, on_suggest_done, ctx);
+}
+
+/* Lazy hints-load context, kept while the idmap probe is in flight so we
+ * can resume the suggest after hints arrive. */
+typedef struct {
+  SbvUsersPanel *panel;
+  gboolean       is_uid;
+  GtkWidget     *entry;
+  GtkWidget     *button;
+} HintsThenSuggestCtx;
+
+/* Completion of the idmap-hints probe. Stores the hints on the panel and
+ * proceeds with the deferred suggest call. */
+static void
+on_hints_then_suggest (GObject *source, GAsyncResult *result,
+                       gpointer user_data)
+{
+  HintsThenSuggestCtx *ctx  = user_data;
+  SbvUsersPanel       *self = ctx->panel;
+  SbvConnection       *conn = SBV_CONNECTION (source);
+  GError              *err  = NULL;
+
+  SbvIdmapHints *hints = sbv_idmap_hints_query_finish (conn, result, &err);
+  if (!hints) {
+    g_warning ("Idmap hints probe failed: %s",
+                err ? err->message : "(no detail)");
+    if (err) g_error_free (err);
+    /* Fall back to profile-only hints so suggest still works. */
+    SbvProfile *profile = sbv_connection_get_profile (conn);
+    hints = sbv_idmap_hints_from_profile (profile);
+  }
+
+  g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
+  self->idmap_hints = hints;
+
+  suggest_with_hints (self, ctx->is_uid, ctx->entry, ctx->button);
+  g_free (ctx);
+}
+
+/* Common entry point for both suggest buttons. Ensures hints are loaded
+ * (one DC round-trip the first time, cached thereafter) before scanning. */
+static void
+do_suggest (SbvUsersPanel *self, gboolean is_uid,
+            GtkWidget *entry, GtkWidget *button)
+{
+  if (!self->conn) return;
+  gtk_widget_set_sensitive (button, FALSE);
+
+  if (self->idmap_hints) {
+    suggest_with_hints (self, is_uid, entry, button);
+    return;
+  }
+
+  HintsThenSuggestCtx *ctx = g_new0 (HintsThenSuggestCtx, 1);
+  ctx->panel  = self;
+  ctx->is_uid = is_uid;
+  ctx->entry  = entry;
+  ctx->button = button;
+
+  SbvProfile *profile = sbv_connection_get_profile (self->conn);
+  sbv_idmap_hints_query_async (self->conn, profile, NULL,
+                                on_hints_then_suggest, ctx);
+}
+
+/* "Suggest" button next to the UID entry. */
+static void
+on_suggest_uid_clicked (GtkButton *btn, gpointer user_data)
+{
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  do_suggest (self, TRUE, self->rfc_uid_entry, GTK_WIDGET (btn));
+}
+
+/* "Suggest" button next to the GID entry. */
+static void
+on_suggest_gid_clicked (GtkButton *btn, gpointer user_data)
+{
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  do_suggest (self, FALSE, self->rfc_gid_entry, GTK_WIDGET (btn));
 }
 
 /* ── Save attributes ────────────────────────────────────────────────────── */
@@ -822,6 +1168,11 @@ on_users_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
 void
 sbv_users_panel_load (SbvUsersPanel *self, SbvConnection *conn)
 {
+  /* Drop cached hints when the connection changes — they're tied to the
+   * profile's UID/GID range and the DC's published values. */
+  if (self->conn != conn)
+    g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
+
   self->conn = conn;
   gtk_stack_set_visible_child_name (GTK_STACK (self->outer_stack), "loading");
   gtk_spinner_start (GTK_SPINNER (self->spinner));
@@ -965,6 +1316,9 @@ sbv_users_panel_finalize (GObject *object)
   SbvUsersPanel *self = SBV_USERS_PANEL (object);
   g_free (self->filter_text);
   g_free (self->pending_select_dn);
+  if (self->uid_check_timer) g_source_remove (self->uid_check_timer);
+  if (self->gid_check_timer) g_source_remove (self->gid_check_timer);
+  g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
   g_clear_object (&self->selected_user);
   G_OBJECT_CLASS (sbv_users_panel_parent_class)->finalize (object);
 }
@@ -1248,12 +1602,66 @@ sbv_users_panel_init (SbvUsersPanel *self)
     self->rfc_uid_entry = gtk_entry_new ();
     gtk_entry_set_placeholder_text (GTK_ENTRY (self->rfc_uid_entry), "UID number");
     gtk_widget_add_css_class (self->rfc_uid_entry, "monospace");
-    gtk_box_append (GTK_BOX (form), make_field_row ("UID Number", self->rfc_uid_entry));
+    g_signal_connect (self->rfc_uid_entry, "changed",
+                      G_CALLBACK (on_uid_entry_changed), self);
+
+    self->rfc_uid_suggest_btn = gtk_button_new_with_label ("Suggest");
+    gtk_widget_set_tooltip_text (self->rfc_uid_suggest_btn,
+                                  "Fill with the lowest unused UID in the configured range");
+    g_signal_connect (self->rfc_uid_suggest_btn, "clicked",
+                      G_CALLBACK (on_suggest_uid_clicked), self);
+    {
+      GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      GtkWidget *lbl = gtk_label_new ("UID Number");
+      gtk_label_set_xalign (GTK_LABEL (lbl), 1);
+      gtk_widget_set_size_request (lbl, 140, -1);
+      gtk_widget_add_css_class (lbl, "dim-label");
+      gtk_box_append (GTK_BOX (row), lbl);
+      gtk_widget_set_hexpand (self->rfc_uid_entry, TRUE);
+      gtk_box_append (GTK_BOX (row), self->rfc_uid_entry);
+      gtk_box_append (GTK_BOX (row), self->rfc_uid_suggest_btn);
+      gtk_box_append (GTK_BOX (form), row);
+    }
+
+    self->rfc_uid_collision = gtk_label_new ("");
+    gtk_label_set_xalign (GTK_LABEL (self->rfc_uid_collision), 0);
+    gtk_label_set_wrap (GTK_LABEL (self->rfc_uid_collision), TRUE);
+    gtk_widget_add_css_class (self->rfc_uid_collision, "warning");
+    gtk_widget_set_margin_start (self->rfc_uid_collision, 148);
+    gtk_widget_set_visible (self->rfc_uid_collision, FALSE);
+    gtk_box_append (GTK_BOX (form), self->rfc_uid_collision);
 
     self->rfc_gid_entry = gtk_entry_new ();
     gtk_entry_set_placeholder_text (GTK_ENTRY (self->rfc_gid_entry), "GID number");
     gtk_widget_add_css_class (self->rfc_gid_entry, "monospace");
-    gtk_box_append (GTK_BOX (form), make_field_row ("GID Number", self->rfc_gid_entry));
+    g_signal_connect (self->rfc_gid_entry, "changed",
+                      G_CALLBACK (on_gid_entry_changed), self);
+
+    self->rfc_gid_suggest_btn = gtk_button_new_with_label ("Suggest");
+    gtk_widget_set_tooltip_text (self->rfc_gid_suggest_btn,
+                                  "Fill with the lowest unused GID in the configured range");
+    g_signal_connect (self->rfc_gid_suggest_btn, "clicked",
+                      G_CALLBACK (on_suggest_gid_clicked), self);
+    {
+      GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      GtkWidget *lbl = gtk_label_new ("GID Number");
+      gtk_label_set_xalign (GTK_LABEL (lbl), 1);
+      gtk_widget_set_size_request (lbl, 140, -1);
+      gtk_widget_add_css_class (lbl, "dim-label");
+      gtk_box_append (GTK_BOX (row), lbl);
+      gtk_widget_set_hexpand (self->rfc_gid_entry, TRUE);
+      gtk_box_append (GTK_BOX (row), self->rfc_gid_entry);
+      gtk_box_append (GTK_BOX (row), self->rfc_gid_suggest_btn);
+      gtk_box_append (GTK_BOX (form), row);
+    }
+
+    self->rfc_gid_collision = gtk_label_new ("");
+    gtk_label_set_xalign (GTK_LABEL (self->rfc_gid_collision), 0);
+    gtk_label_set_wrap (GTK_LABEL (self->rfc_gid_collision), TRUE);
+    gtk_widget_add_css_class (self->rfc_gid_collision, "warning");
+    gtk_widget_set_margin_start (self->rfc_gid_collision, 148);
+    gtk_widget_set_visible (self->rfc_gid_collision, FALSE);
+    gtk_box_append (GTK_BOX (form), self->rfc_gid_collision);
 
     self->rfc_shell_entry = gtk_entry_new ();
     gtk_entry_set_placeholder_text (GTK_ENTRY (self->rfc_shell_entry), "/bin/bash");

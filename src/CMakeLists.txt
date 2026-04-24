@@ -35,6 +35,7 @@ add_executable(sambervise
     backend/sbv-groups-backend.c
     backend/sbv-computers-backend.c
     backend/sbv-idmap-hints.c
+    backend/sbv-collisions.c
     ui/sbv-window.c
     ui/sbv-connect-dialog.c
     ui/sbv-password-dialog.c

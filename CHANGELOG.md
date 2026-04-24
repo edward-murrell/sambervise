@@ -5,6 +5,19 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-04-24
+
+### Added
+- Live UID/GID collision detection: as you type a uidNumber or gidNumber on
+  the user/group detail pane, sambervise probes the DC (debounced ~350 ms)
+  and shows an inline warning naming the conflicting object(s) when the
+  value is already in use elsewhere. The current object is excluded from
+  the search so editing without changing the value is silent.
+- "Suggest" button next to each UID/GID entry: scans the configured POSIX
+  range on the DC and fills the field with the lowest unused integer.
+  Range comes from per-profile config in `connections.ini`, optionally
+  enriched by the DC's published `msSFU30MaxUidNumber/MaxGidNumber` hints.
+
 ## [0.1.3] - 2026-04-24
 
 ### Added

@@ -16,6 +16,7 @@ const char *sbv_connection_get_host    (SbvConnection *self);
 const char *sbv_connection_get_base_dn (SbvConnection *self);
 int         sbv_connection_get_port    (SbvConnection *self);
 gboolean    sbv_connection_is_connected (SbvConnection *self);
+SbvProfile *sbv_connection_get_profile (SbvConnection *self);
 
 /* Connect using a saved profile.
  * password is required when profile uses SBV_AUTH_SIMPLE; pass NULL for

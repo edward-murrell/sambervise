@@ -2,6 +2,8 @@
 #include "sbv-create-group-dialog.h"
 #include "../backend/sbv-groups-backend.h"
 #include "../backend/sbv-users-backend.h"
+#include "../backend/sbv-collisions.h"
+#include "../backend/sbv-idmap-hints.h"
 #include "../model/sbv-group.h"
 #include "../model/sbv-user.h"
 
@@ -37,6 +39,11 @@ struct _SbvGroupsPanel {
   GtkWidget     *rfc_member_uid_label; /* memberUid — read-only */
   GtkWidget     *rfc_save_btn;
   GtkWidget     *rfc_error;
+  GtkWidget     *rfc_gid_collision;    /* warning under gid entry */
+  guint          gid_check_timer;       /* g_timeout_add id for debounce */
+  GtkWidget     *rfc_gid_suggest_btn;
+  /* Cached idmap hints for the active connection. Loaded lazily. */
+  SbvIdmapHints *idmap_hints;
 
   /* Raw LDAP attributes (dynamic, rebuilt on selection) */
   GtkWidget     *raw_attrs_box;
@@ -218,6 +225,17 @@ on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
   gtk_editable_set_text (GTK_EDITABLE (self->rfc_gid_entry), gid_str);
   g_free (gid_str);
   gtk_widget_set_visible (self->rfc_error, FALSE);
+
+  /* Cancel any in-flight collision debounce; the changed-handler will
+   * rearm with the freshly-loaded value. */
+  if (self->gid_check_timer) {
+    g_source_remove (self->gid_check_timer);
+    self->gid_check_timer = 0;
+  }
+  if (self->rfc_gid_collision) {
+    gtk_label_set_text (GTK_LABEL (self->rfc_gid_collision), "");
+    gtk_widget_set_visible (self->rfc_gid_collision, FALSE);
+  }
 
   guint n_uid = sbv_group_get_member_uid_count (group);
   if (n_uid > 0) {
@@ -597,6 +615,203 @@ on_add_member_btn_clicked (GtkButton *btn, gpointer user_data)
   show_add_member_dialog (SBV_GROUPS_PANEL (user_data));
 }
 
+/* ── GID auto-assignment (Suggest button) ───────────────────────────────── */
+
+/* Per-suggest context. */
+typedef struct {
+  SbvGroupsPanel *panel;
+  GtkWidget      *button;
+} GroupSuggestCtx;
+
+/* Async-completion: fill rfc_gid_entry with the suggested value. */
+static void
+on_group_suggest_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  GroupSuggestCtx *ctx  = user_data;
+  SbvGroupsPanel  *self = ctx->panel;
+  SbvConnection   *conn = SBV_CONNECTION (source);
+  GError          *err  = NULL;
+
+  gint64 v = sbv_collisions_next_free_gid_finish (conn, result, &err);
+
+  gtk_widget_set_sensitive (ctx->button, TRUE);
+
+  if (err) {
+    g_warning ("Suggest GID failed: %s", err->message);
+    g_error_free (err);
+  } else if (v < 0) {
+    g_warning ("Suggest GID: configured range exhausted");
+  } else {
+    char buf[32];
+    g_snprintf (buf, sizeof buf, "%" G_GINT64_FORMAT, v);
+    gtk_editable_set_text (GTK_EDITABLE (self->rfc_gid_entry), buf);
+  }
+
+  g_free (ctx);
+}
+
+/* Issues the next-free-gid scan using the cached hints. */
+static void
+group_suggest_with_hints (SbvGroupsPanel *self)
+{
+  gint64 lo = self->idmap_hints->gid_min;
+  gint64 hi = self->idmap_hints->gid_max;
+  gint64 hint = self->idmap_hints->next_gid_hint;
+  if (hint > lo && hint <= hi) lo = hint;
+
+  GroupSuggestCtx *ctx = g_new0 (GroupSuggestCtx, 1);
+  ctx->panel  = self;
+  ctx->button = self->rfc_gid_suggest_btn;
+
+  sbv_collisions_next_free_gid_async (self->conn, lo, hi,
+                                       NULL, on_group_suggest_done, ctx);
+}
+
+/* Lazy-load context for the hints probe. */
+typedef struct {
+  SbvGroupsPanel *panel;
+} GroupHintsThenSuggestCtx;
+
+/* Completion of the hints probe — caches and resumes the suggest call. */
+static void
+on_group_hints_then_suggest (GObject *source, GAsyncResult *result,
+                             gpointer user_data)
+{
+  GroupHintsThenSuggestCtx *ctx  = user_data;
+  SbvGroupsPanel           *self = ctx->panel;
+  SbvConnection            *conn = SBV_CONNECTION (source);
+  GError                   *err  = NULL;
+
+  SbvIdmapHints *hints = sbv_idmap_hints_query_finish (conn, result, &err);
+  if (!hints) {
+    g_warning ("Idmap hints probe failed: %s",
+                err ? err->message : "(no detail)");
+    if (err) g_error_free (err);
+    SbvProfile *profile = sbv_connection_get_profile (conn);
+    hints = sbv_idmap_hints_from_profile (profile);
+  }
+
+  g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
+  self->idmap_hints = hints;
+
+  group_suggest_with_hints (self);
+  g_free (ctx);
+}
+
+/* "Suggest" button next to the GID entry. */
+static void
+on_group_suggest_gid_clicked (GtkButton *btn, gpointer user_data)
+{
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  if (!self->conn) return;
+  gtk_widget_set_sensitive (GTK_WIDGET (btn), FALSE);
+
+  if (self->idmap_hints) {
+    group_suggest_with_hints (self);
+    return;
+  }
+
+  GroupHintsThenSuggestCtx *ctx = g_new0 (GroupHintsThenSuggestCtx, 1);
+  ctx->panel = self;
+
+  SbvProfile *profile = sbv_connection_get_profile (self->conn);
+  sbv_idmap_hints_query_async (self->conn, profile, NULL,
+                                on_group_hints_then_suggest, ctx);
+}
+
+/* ── GID collision detection ────────────────────────────────────────────── */
+
+#define GID_COLLISION_DEBOUNCE_MS 350
+
+/* Per-check context. */
+typedef struct {
+  SbvGroupsPanel *panel;
+  gint64          value;
+} GidCollisionCtx;
+
+/* Async-completion callback for the GID collision check. Drops the result
+ * if the entry has since changed. */
+static void
+on_gid_collision_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  GidCollisionCtx *ctx  = user_data;
+  SbvGroupsPanel  *self = ctx->panel;
+  SbvConnection   *conn = SBV_CONNECTION (source);
+  GError          *err  = NULL;
+
+  GPtrArray *hits = sbv_collisions_gid_check_finish (conn, result, &err);
+
+  const char *now_text = gtk_editable_get_text (
+    GTK_EDITABLE (self->rfc_gid_entry));
+  gint64 now_val = *now_text ? g_ascii_strtoll (now_text, NULL, 10) : -1;
+
+  if (now_val == ctx->value && self->rfc_gid_collision) {
+    if (!hits || hits->len == 0) {
+      gtk_label_set_text (GTK_LABEL (self->rfc_gid_collision), "");
+      gtk_widget_set_visible (self->rfc_gid_collision, FALSE);
+    } else {
+      GString *s = g_string_new ("GID in use by ");
+      guint shown = MIN (hits->len, 2u);
+      for (guint i = 0; i < shown; i++) {
+        SbvCollisionHit *h = g_ptr_array_index (hits, i);
+        if (i > 0) g_string_append (s, ", ");
+        g_string_append (s, h->sam ? h->sam : h->dn);
+      }
+      if (hits->len > shown)
+        g_string_append_printf (s, " (+%u more)", hits->len - shown);
+      gtk_label_set_text (GTK_LABEL (self->rfc_gid_collision), s->str);
+      gtk_widget_set_visible (self->rfc_gid_collision, TRUE);
+      g_string_free (s, TRUE);
+    }
+  }
+
+  if (hits) sbv_collision_hits_free (hits);
+  if (err)  g_error_free (err);
+  g_free (ctx);
+}
+
+/* Fires the GID collision check for whatever's currently in rfc_gid_entry. */
+static gboolean
+fire_group_gid_check (gpointer user_data)
+{
+  SbvGroupsPanel *self = user_data;
+  self->gid_check_timer = 0;
+
+  if (!self->conn) return G_SOURCE_REMOVE;
+
+  const char *text = gtk_editable_get_text (GTK_EDITABLE (self->rfc_gid_entry));
+  if (!*text) {
+    gtk_label_set_text (GTK_LABEL (self->rfc_gid_collision), "");
+    gtk_widget_set_visible (self->rfc_gid_collision, FALSE);
+    return G_SOURCE_REMOVE;
+  }
+
+  gint64 gid = g_ascii_strtoll (text, NULL, 10);
+
+  GidCollisionCtx *ctx = g_new0 (GidCollisionCtx, 1);
+  ctx->panel = self;
+  ctx->value = gid;
+
+  const char *exclude = self->selected_group
+    ? sbv_group_get_dn (self->selected_group) : NULL;
+
+  sbv_collisions_gid_check_async (self->conn, gid, exclude,
+                                   NULL, on_gid_collision_done, ctx);
+  return G_SOURCE_REMOVE;
+}
+
+/* "changed" handler on rfc_gid_entry: debounce a collision check. */
+static void
+on_group_gid_entry_changed (GtkEditable *e, gpointer user_data)
+{
+  (void) e;
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  if (self->gid_check_timer)
+    g_source_remove (self->gid_check_timer);
+  self->gid_check_timer =
+    g_timeout_add (GID_COLLISION_DEBOUNCE_MS, fire_group_gid_check, self);
+}
+
 /* ── Create / Delete ────────────────────────────────────────────────────── */
 
 /* Called when the create-group dialog finishes successfully. Records the
@@ -853,6 +1068,11 @@ on_groups_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
 void
 sbv_groups_panel_load (SbvGroupsPanel *self, SbvConnection *conn)
 {
+  /* Drop cached hints when the connection changes — they're tied to the
+   * profile's range and the DC's published values. */
+  if (self->conn != conn)
+    g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
+
   self->conn = conn;
   gtk_stack_set_visible_child_name (GTK_STACK (self->outer_stack), "loading");
   sbv_groups_list_async (conn, NULL, on_groups_loaded, self);
@@ -987,6 +1207,8 @@ sbv_groups_panel_finalize (GObject *object)
   SbvGroupsPanel *self = SBV_GROUPS_PANEL (object);
   g_free (self->filter_text);
   g_free (self->pending_select_sam);
+  if (self->gid_check_timer) g_source_remove (self->gid_check_timer);
+  g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
   g_clear_object (&self->selected_group);
   G_OBJECT_CLASS (sbv_groups_panel_parent_class)->finalize (object);
 }
@@ -1136,6 +1358,15 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
       self->rfc_gid_entry = gtk_entry_new ();
       gtk_entry_set_placeholder_text (GTK_ENTRY (self->rfc_gid_entry), "GID number");
       gtk_widget_add_css_class (self->rfc_gid_entry, "monospace");
+      g_signal_connect (self->rfc_gid_entry, "changed",
+                        G_CALLBACK (on_group_gid_entry_changed), self);
+
+      self->rfc_gid_suggest_btn = gtk_button_new_with_label ("Suggest");
+      gtk_widget_set_tooltip_text (self->rfc_gid_suggest_btn,
+                                    "Fill with the lowest unused GID in the configured range");
+      g_signal_connect (self->rfc_gid_suggest_btn, "clicked",
+                        G_CALLBACK (on_group_suggest_gid_clicked), self);
+
       GtkWidget *lbl = gtk_label_new ("GID Number");
       gtk_label_set_xalign (GTK_LABEL (lbl), 1.0);
       gtk_widget_set_size_request (lbl, 90, -1);
@@ -1146,7 +1377,16 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
       gtk_widget_set_hexpand (self->rfc_gid_entry, TRUE);
       gtk_box_append (GTK_BOX (row), lbl);
       gtk_box_append (GTK_BOX (row), self->rfc_gid_entry);
+      gtk_box_append (GTK_BOX (row), self->rfc_gid_suggest_btn);
       gtk_box_append (GTK_BOX (detail_box), row);
+
+      self->rfc_gid_collision = gtk_label_new ("");
+      gtk_label_set_xalign (GTK_LABEL (self->rfc_gid_collision), 0);
+      gtk_label_set_wrap (GTK_LABEL (self->rfc_gid_collision), TRUE);
+      gtk_widget_add_css_class (self->rfc_gid_collision, "warning");
+      gtk_widget_set_margin_start (self->rfc_gid_collision, 98);
+      gtk_widget_set_visible (self->rfc_gid_collision, FALSE);
+      gtk_box_append (GTK_BOX (detail_box), self->rfc_gid_collision);
     }
 
     {
