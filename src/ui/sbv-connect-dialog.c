@@ -32,6 +32,11 @@ typedef struct {
 
   SbvConnection     *pending_conn;
   GCancellable      *discover_cancel;
+
+  /* Edit-only mode — no LDAP connect on save; original_name is kept so a
+   * rename can purge the old entry before upsert (which keys on name). */
+  gboolean           edit_only;
+  char              *original_name;
 } DialogData;
 
 static void
@@ -39,6 +44,7 @@ dialog_data_free (DialogData *d)
 {
   g_clear_object (&d->pending_conn);
   g_clear_object (&d->discover_cancel);
+  g_free (d->original_name);
   g_free (d);
 }
 
@@ -324,12 +330,12 @@ on_connect_done (GObject *source, GAsyncResult *result, gpointer user_data)
   g_object_unref (profile);
 }
 
-static void
-on_connect_clicked (GtkButton *btn, gpointer user_data)
+/* Validates the protocol fields shown in the dialog. Returns TRUE if the
+ * input is good enough to proceed; otherwise sets the error label and
+ * returns FALSE. */
+static gboolean
+validate_inputs (DialogData *d, gboolean require_password)
 {
-  (void) btn;
-  DialogData *d = user_data;
-
   gtk_widget_set_visible (d->error_label, FALSE);
 
   const char *host    = gtk_editable_get_text (GTK_EDITABLE (d->host_entry));
@@ -338,21 +344,88 @@ on_connect_clicked (GtkButton *btn, gpointer user_data)
   if (!*host || !*base_dn) {
     gtk_label_set_text (GTK_LABEL (d->error_label), "Host and Base DN are required.");
     gtk_widget_set_visible (d->error_label, TRUE);
-    return;
+    return FALSE;
   }
 
   gboolean simple = gtk_check_button_get_active (GTK_CHECK_BUTTON (d->simple_radio));
-  if (simple) {
+  if (simple && require_password) {
     const char *bind_dn = gtk_editable_get_text (GTK_EDITABLE (d->bind_dn_entry));
     if (!*bind_dn) {
-      gtk_label_set_text (GTK_LABEL (d->error_label), "Bind DN / UPN is required for simple auth.");
+      gtk_label_set_text (GTK_LABEL (d->error_label),
+                          "Bind DN / UPN is required for simple auth.");
       gtk_widget_set_visible (d->error_label, TRUE);
-      return;
+      return FALSE;
+    }
+  }
+  return TRUE;
+}
+
+/* Save handler used in edit-only mode: persist changes (with rename
+ * support) and close. Never opens an LDAP connection. */
+static void
+on_save_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  DialogData *d = user_data;
+
+  if (!validate_inputs (d, FALSE))
+    return;
+
+  SbvProfile *profile = build_profile (d);
+  const char *new_name = sbv_profile_get_name (profile);
+
+  if (!new_name || !*new_name) {
+    gtk_label_set_text (GTK_LABEL (d->error_label),
+                        "A profile name is required when saving.");
+    gtk_widget_set_visible (d->error_label, TRUE);
+    g_object_unref (profile);
+    return;
+  }
+
+  /* Rename: drop the old key before upsert so the rename actually replaces
+   * (upsert matches by name, and would otherwise just create a new entry
+   * leaving a stale duplicate behind). */
+  if (d->original_name && !g_str_equal (d->original_name, new_name)) {
+    GError *rm_err = NULL;
+    if (!sbv_profiles_remove (d->profiles_store, d->original_name, &rm_err) && rm_err) {
+      g_warning ("Failed to remove old profile '%s': %s",
+                  d->original_name, rm_err->message);
+      g_error_free (rm_err);
     }
   }
 
+  GError *err = NULL;
+  if (!sbv_profiles_upsert (d->profiles_store, profile, &err)) {
+    gtk_label_set_text (GTK_LABEL (d->error_label),
+                        err ? err->message : "Failed to save profile.");
+    gtk_widget_set_visible (d->error_label, TRUE);
+    if (err) g_error_free (err);
+    g_object_unref (profile);
+    return;
+  }
+
+  SbvConnectCallback cb   = d->callback;
+  gpointer           data = d->callback_data;
+
+  gtk_window_destroy (GTK_WINDOW (d->dialog));
+
+  if (cb)
+    cb (NULL, profile, data);
+  g_object_unref (profile);
+}
+
+static void
+on_connect_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  DialogData *d = user_data;
+
+  if (!validate_inputs (d, TRUE))
+    return;
+
   set_busy (d, TRUE);
 
+  gboolean    simple   = gtk_check_button_get_active (GTK_CHECK_BUTTON (d->simple_radio));
   SbvProfile *profile  = build_profile (d);
   const char *password = simple
     ? gtk_editable_get_text (GTK_EDITABLE (d->password_entry))
@@ -375,12 +448,15 @@ on_dialog_destroy (GtkWidget *widget, gpointer user_data)
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
-GtkWidget *
-sbv_connect_dialog_new (GtkWindow         *parent,
-                         GListStore        *profiles_store,
-                         SbvProfile        *edit_profile,
-                         SbvConnectCallback callback,
-                         gpointer           user_data)
+/* Shared dialog construction. `edit_only` selects between full
+ * "Add/Connect" mode and "Edit (save without connecting)" mode. */
+static GtkWidget *
+build_dialog (GtkWindow         *parent,
+              GListStore        *profiles_store,
+              SbvProfile        *edit_profile,
+              gboolean           edit_only,
+              SbvConnectCallback callback,
+              gpointer           user_data)
 {
   GtkBuilder *builder = gtk_builder_new_from_resource (
     "/org/ekm/sambervise/ui/connect-dialog.ui");
@@ -409,6 +485,15 @@ sbv_connect_dialog_new (GtkWindow         *parent,
   d->profiles_store  = profiles_store;
   d->callback        = callback;
   d->callback_data   = user_data;
+  d->edit_only       = edit_only;
+
+  if (edit_only && edit_profile)
+    d->original_name = g_strdup (sbv_profile_get_name (edit_profile));
+
+  if (edit_only) {
+    gtk_window_set_title (GTK_WINDOW (d->dialog), "Edit Connection");
+    gtk_button_set_label (GTK_BUTTON (d->connect_btn), "Save");
+  }
 
   /* Pre-populate if editing a profile */
   if (edit_profile) {
@@ -452,11 +537,37 @@ sbv_connect_dialog_new (GtkWindow         *parent,
   g_signal_connect (d->use_ldaps_check, "toggled", G_CALLBACK (on_ldaps_toggled),   d);
   g_signal_connect (d->discover_btn,    "clicked", G_CALLBACK (on_discover_clicked), d);
   g_signal_connect (d->dc_list,  "row-activated",  G_CALLBACK (on_dc_row_activated), d);
-  g_signal_connect (d->connect_btn,     "clicked", G_CALLBACK (on_connect_clicked), d);
+  g_signal_connect (d->connect_btn,     "clicked",
+                    edit_only ? G_CALLBACK (on_save_clicked)
+                              : G_CALLBACK (on_connect_clicked), d);
   g_signal_connect_swapped (d->cancel_btn, "clicked",
                              G_CALLBACK (gtk_window_destroy), d->dialog);
   g_signal_connect (d->dialog, "destroy", G_CALLBACK (on_dialog_destroy), d);
 
   g_object_unref (builder);
   return d->dialog;
+}
+
+/* Public: opens the dialog in connect mode (the default since 0.1.0). */
+GtkWidget *
+sbv_connect_dialog_new (GtkWindow         *parent,
+                         GListStore        *profiles_store,
+                         SbvProfile        *edit_profile,
+                         SbvConnectCallback callback,
+                         gpointer           user_data)
+{
+  return build_dialog (parent, profiles_store, edit_profile, FALSE,
+                        callback, user_data);
+}
+
+/* Public: opens the dialog in edit-only mode — see header. */
+GtkWidget *
+sbv_edit_dialog_new (GtkWindow         *parent,
+                      GListStore        *profiles_store,
+                      SbvProfile        *edit_profile,
+                      SbvConnectCallback callback,
+                      gpointer           user_data)
+{
+  return build_dialog (parent, profiles_store, edit_profile, TRUE,
+                        callback, user_data);
 }

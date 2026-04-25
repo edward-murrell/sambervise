@@ -37,11 +37,15 @@ G_DEFINE_TYPE (SbvWindow, sbv_window, ADW_TYPE_APPLICATION_WINDOW)
 /* Forward declare */
 void sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profile);
 static void rebuild_profiles_list (SbvWindow *self);
+static void on_edit_profile_clicked (GtkButton *btn, gpointer user_data);
 
 /* ── Profile row construction ───────────────────────────────────────────── */
 
+/* Builds one sidebar profile row. The row is clickable to connect; a small
+ * pencil button on the trailing edge opens the edit dialog. The button
+ * consumes its own gesture so clicking it does not trigger row-activated. */
 static GtkWidget *
-make_profile_row (SbvProfile *profile, SbvProfile *active)
+make_profile_row (SbvWindow *self, SbvProfile *profile, SbvProfile *active)
 {
   GtkWidget *row = gtk_list_box_row_new ();
   g_object_set_data_full (G_OBJECT (row), "sbv-profile",
@@ -92,6 +96,16 @@ make_profile_row (SbvProfile *profile, SbvProfile *active)
   gtk_widget_add_css_class (auth_lbl, "dim-label");
   gtk_box_append (GTK_BOX (box), auth_lbl);
 
+  GtkWidget *edit_btn = gtk_button_new_from_icon_name ("document-edit-symbolic");
+  gtk_widget_set_tooltip_text (edit_btn, "Edit connection");
+  gtk_widget_add_css_class (edit_btn, "flat");
+  gtk_widget_set_valign (edit_btn, GTK_ALIGN_CENTER);
+  g_object_set_data_full (G_OBJECT (edit_btn), "sbv-profile",
+                           g_object_ref (profile), g_object_unref);
+  g_signal_connect (edit_btn, "clicked",
+                    G_CALLBACK (on_edit_profile_clicked), self);
+  gtk_box_append (GTK_BOX (box), edit_btn);
+
   gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), box);
   return row;
 }
@@ -106,7 +120,8 @@ rebuild_profiles_list (SbvWindow *self)
   guint n = g_list_model_get_n_items (G_LIST_MODEL (self->profiles_store));
   for (guint i = 0; i < n; i++) {
     SbvProfile *p = g_list_model_get_item (G_LIST_MODEL (self->profiles_store), i);
-    gtk_list_box_append (self->profiles_list, make_profile_row (p, self->active_profile));
+    gtk_list_box_append (self->profiles_list,
+                          make_profile_row (self, p, self->active_profile));
     g_object_unref (p);
   }
 }
@@ -170,6 +185,41 @@ connect_to_profile (SbvWindow *self, SbvProfile *profile)
 }
 
 /* ── Signal handlers ────────────────────────────────────────────────────── */
+
+/* Edit-dialog completion: refresh the sidebar so the (possibly renamed)
+ * row reflects the new state, and if the active connection's profile was
+ * the one edited, surface a toast that changes apply on next connect. */
+static void
+on_edit_saved (SbvConnection *conn, SbvProfile *saved, gpointer user_data)
+{
+  (void) conn;
+  SbvWindow *self = SBV_WINDOW (user_data);
+
+  rebuild_profiles_list (self);
+
+  if (saved && self->active_profile) {
+    const char *active = sbv_profile_get_name (self->active_profile);
+    const char *edited = sbv_profile_get_name (saved);
+    if (active && edited && g_str_equal (active, edited)) {
+      sbv_window_show_toast (self,
+        "Connection changes will apply on next connect.");
+    }
+  }
+}
+
+static void
+on_edit_profile_clicked (GtkButton *btn, gpointer user_data)
+{
+  SbvWindow  *self    = SBV_WINDOW (user_data);
+  SbvProfile *profile = g_object_get_data (G_OBJECT (btn), "sbv-profile");
+  if (!profile) return;
+
+  GtkWidget *dialog = sbv_edit_dialog_new (GTK_WINDOW (self),
+                                             self->profiles_store,
+                                             profile,
+                                             on_edit_saved, self);
+  gtk_window_present (GTK_WINDOW (dialog));
+}
 
 static void
 on_profile_row_activated (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)

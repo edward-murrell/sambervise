@@ -114,17 +114,21 @@ can pick it up later without re-litigating decisions.
 
 ## Connection management
 
-### 8. Edit connection profiles after creation
-- Currently the connect dialog is "create-only": once a profile is saved
-  there's no way to change host, port, base DN, auth type, TLS settings,
-  or the new POSIX UID/GID range fields without hand-editing
-  `~/.config/sambervise/connections.ini`.
-- Wanted: a way to re-open the connect dialog (or an equivalent edit
-  dialog) for an existing profile. Likely a context-menu or pencil-icon
-  on each row in the sidebar profiles list. On save, `sbv_profiles_upsert`
-  already does the right thing (matches by name).
-- Decide what happens if the active connection's profile is edited —
-  prompt to reconnect, or just take effect on next connect?
+### 8. Edit connection profiles after creation  *(DONE — 0.1.6)*
+- New `sbv_edit_dialog_new` reuses the connect-dialog UI in "save without
+  connecting" mode (title "Edit Connection", action button "Save").
+- Pencil icon (`document-edit-symbolic`, flat) added at the trailing edge
+  of each sidebar profile row; clicking it opens the edit dialog
+  pre-populated from the saved profile. Clicking the pencil consumes its
+  own gesture and does not trigger row-activated / connect.
+- Rename support: when the profile name changes during edit,
+  `sbv_profiles_remove(old_name)` runs before `sbv_profiles_upsert(new)`
+  so the rename actually replaces the entry instead of duplicating it.
+- Active-connection edit: changes are persisted but the running session
+  is left alone. A toast tells the admin the changes apply on next
+  connect.
+- POSIX UID/GID range fields are still hand-edited in `connections.ini`;
+  surfacing them in the connect/edit dialog is tracked under #7.
 
 ## UI visibility / inspection
 

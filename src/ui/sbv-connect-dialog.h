@@ -20,4 +20,15 @@ GtkWidget *sbv_connect_dialog_new (GtkWindow         *parent,
                                     SbvConnectCallback callback,
                                     gpointer           user_data);
 
+/* Variant: opens the same dialog in "Edit Connection" mode — pre-populated
+ * from edit_profile, the action button just persists changes (no connect
+ * attempt) and `callback` fires with conn=NULL on save, or never if the
+ * user cancels. Renaming the profile is handled (the old name is removed
+ * before the new entry is upserted). */
+GtkWidget *sbv_edit_dialog_new    (GtkWindow         *parent,
+                                    GListStore        *profiles_store,
+                                    SbvProfile        *edit_profile,
+                                    SbvConnectCallback callback,
+                                    gpointer           user_data);
+
 G_END_DECLS

@@ -5,6 +5,16 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-04-25
+
+### Added
+- Edit connection profile: a pencil icon on each sidebar profile row opens
+  an "Edit Connection" dialog pre-populated from the saved profile. Save
+  persists the change to `connections.ini` without attempting to connect.
+  Renaming a profile cleanly replaces the old entry. If the edited
+  profile is currently active, a toast confirms the changes apply on the
+  next connect.
+
 ## [0.1.5] - 2026-04-25
 
 ### Added
