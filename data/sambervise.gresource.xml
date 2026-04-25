@@ -4,4 +4,8 @@
     <file>ui/window.ui</file>
     <file>ui/connect-dialog.ui</file>
   </gresource>
+  <gresource prefix="/org/ekm/sambervise/icons">
+    <file alias="scalable/actions/document-edit-symbolic.svg">icons/scalable/actions/document-edit-symbolic.svg</file>
+    <file alias="scalable/actions/view-list-bullet-symbolic.svg">icons/scalable/actions/view-list-bullet-symbolic.svg</file>
+  </gresource>
 </gresources>

@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profile is currently active, a toast confirms the changes apply on the
   next connect.
 
+### Fixed
+- "Raw LDAP" sidebar entry and the new edit-connection pencil now display
+  correctly under icon themes that don't inherit from Adwaita (e.g.
+  Mint-X). The two symbolic icons (`view-list-bullet-symbolic`,
+  `document-edit-symbolic`) are bundled in the app's GResource and
+  registered with the default `GtkIconTheme` at startup, so they render
+  regardless of the active icon theme.
+
 ## [0.1.5] - 2026-04-25
 
 ### Added

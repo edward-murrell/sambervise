@@ -30,6 +30,12 @@ sbv_app_startup (GApplication *app)
   G_APPLICATION_CLASS (sbv_app_parent_class)->startup (app);
   adw_init ();
 
+  /* Register our bundled symbolic icons so they render even when the
+   * user's icon theme (e.g. Mint-X) doesn't inherit from Adwaita and is
+   * missing names like document-edit-symbolic / view-list-bullet-symbolic. */
+  gtk_icon_theme_add_resource_path (gtk_icon_theme_get_for_display (gdk_display_get_default ()),
+                                     "/org/ekm/sambervise/icons");
+
   SbvApp *self = SBV_APP (app);
   GError *err  = NULL;
   self->profiles_store = sbv_profiles_load (&err);

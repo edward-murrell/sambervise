@@ -14,6 +14,8 @@ add_custom_command(
     DEPENDS ${GRESOURCE_XML}
             ${CMAKE_SOURCE_DIR}/data/ui/window.ui
             ${CMAKE_SOURCE_DIR}/data/ui/connect-dialog.ui
+            ${CMAKE_SOURCE_DIR}/data/icons/scalable/actions/document-edit-symbolic.svg
+            ${CMAKE_SOURCE_DIR}/data/icons/scalable/actions/view-list-bullet-symbolic.svg
     COMMENT "Compiling GResources"
 )
 
