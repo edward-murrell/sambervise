@@ -265,6 +265,135 @@
               </object>
             </child>
 
+            <child><object class="GtkSeparator"/></child>
+
+            <!-- POSIX UID/GID ranges (collapsible) -->
+            <child>
+              <object class="GtkExpander" id="posix_expander">
+                <property name="label">POSIX UID/GID ranges</property>
+                <property name="expanded">false</property>
+                <child>
+                  <object class="GtkBox">
+                    <property name="orientation">vertical</property>
+                    <property name="spacing">8</property>
+                    <property name="margin-top">8</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="label">Range used for new RFC2307 uidNumber / gidNumber values and the "Suggest" button. Leave a field at 0 to use the built-in default (10000–29999).</property>
+                        <property name="wrap">true</property>
+                        <property name="xalign">0</property>
+                        <style><class name="dim-label"/><class name="caption"/></style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="orientation">horizontal</property>
+                        <property name="spacing">12</property>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label">UID range</property>
+                            <property name="xalign">1</property>
+                            <property name="width-chars">12</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkSpinButton" id="uid_min_spin">
+                            <property name="hexpand">true</property>
+                            <property name="adjustment">
+                              <object class="GtkAdjustment">
+                                <property name="value">0</property>
+                                <property name="lower">0</property>
+                                <property name="upper">2147483647</property>
+                                <property name="step-increment">1</property>
+                                <property name="page-increment">1000</property>
+                              </object>
+                            </property>
+                            <property name="numeric">true</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label">to</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkSpinButton" id="uid_max_spin">
+                            <property name="hexpand">true</property>
+                            <property name="adjustment">
+                              <object class="GtkAdjustment">
+                                <property name="value">0</property>
+                                <property name="lower">0</property>
+                                <property name="upper">2147483647</property>
+                                <property name="step-increment">1</property>
+                                <property name="page-increment">1000</property>
+                              </object>
+                            </property>
+                            <property name="numeric">true</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkBox">
+                        <property name="orientation">horizontal</property>
+                        <property name="spacing">12</property>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label">GID range</property>
+                            <property name="xalign">1</property>
+                            <property name="width-chars">12</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkSpinButton" id="gid_min_spin">
+                            <property name="hexpand">true</property>
+                            <property name="adjustment">
+                              <object class="GtkAdjustment">
+                                <property name="value">0</property>
+                                <property name="lower">0</property>
+                                <property name="upper">2147483647</property>
+                                <property name="step-increment">1</property>
+                                <property name="page-increment">1000</property>
+                              </object>
+                            </property>
+                            <property name="numeric">true</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkLabel">
+                            <property name="label">to</property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkSpinButton" id="gid_max_spin">
+                            <property name="hexpand">true</property>
+                            <property name="adjustment">
+                              <object class="GtkAdjustment">
+                                <property name="value">0</property>
+                                <property name="lower">0</property>
+                                <property name="upper">2147483647</property>
+                                <property name="step-increment">1</property>
+                                <property name="page-increment">1000</property>
+                              </object>
+                            </property>
+                            <property name="numeric">true</property>
+                          </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel" id="posix_hints_label">
+                        <property name="visible">false</property>
+                        <property name="wrap">true</property>
+                        <property name="xalign">0</property>
+                        <style><class name="dim-label"/><class name="caption"/></style>
+                      </object>
+                    </child>
+                  </object>
+                </child>
+              </object>
+            </child>
+
             <!-- Error label -->
             <child>
               <object class="GtkLabel" id="error_label">

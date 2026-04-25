@@ -132,22 +132,22 @@ can pick it up later without re-litigating decisions.
 
 ## UI visibility / inspection
 
-### 7. Show the active connection's UID/GID ranges in the UI
-- Today the per-profile range and the DC-published `msSFU30` hints are only
-  observable by reading `connections.ini` or the source. Surface them so an
-  admin can confirm "yes, the DC published these and yes, this is the range
-  the auto-assign button will use".
-- Candidate placements (pick one or more):
-  - A small read-only pane in the connect dialog when editing a profile:
-    show configured range + a "Probe DC" button that calls
-    `sbv_idmap_hints_query_async` and displays what the DC returned.
-  - A status row at the top (or bottom) of the users / groups panels showing
-    `UID: 10000–29999 (next hint: 12431) — source: msSFU30 + profile config`
-    once a connection is active.
-  - An "About this connection" item under the profile in the sidebar.
-- Make sure the source attribution string from `SbvIdmapHints.source` is
-  displayed so the admin knows whether the values came from the DC or just
-  from the local config.
+### 7. Show the active connection's UID/GID ranges in the UI  *(PARTIAL — 0.1.7)*
+- Done in 0.1.7: Add/Edit Connection dialog gained a collapsible "POSIX
+  UID/GID ranges" section with editable spinners for uid-min/uid-max/
+  gid-min/gid-max. 0 = "use default", which translates to `-1` in the
+  profile so the persistence layer omits the key. Edit-mode also shows a
+  one-line "Effective range … (source: …)" caption built from
+  `sbv_idmap_hints_from_profile`, surfacing `SbvIdmapHints.source`.
+- Still open:
+  - "Probe DC" button in the dialog that calls
+    `sbv_idmap_hints_query_async` to display the live `msSFU30` hints —
+    needs a way to acquire/borrow an LDAP connection from edit-mode (the
+    edit dialog has no live conn of its own).
+  - A status row on the users/groups panels showing the resolved range +
+    `next_*_hint` once a connection is active, so an admin can confirm
+    what the Suggest button will use without opening the edit dialog.
+  - An "About this connection" sidebar entry / popover.
 
 ## Open questions / deferred
 

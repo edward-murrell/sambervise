@@ -1,5 +1,6 @@
 #include "sbv-connect-dialog.h"
 #include "../backend/sbv-dns.h"
+#include "../backend/sbv-idmap-hints.h"
 
 #include <adwaita.h>
 #include <string.h>
@@ -22,6 +23,12 @@ typedef struct {
   GtkWidget         *use_tls_check;
   GtkWidget         *use_ldaps_check;
   GtkWidget         *skip_cert_check;
+  GtkWidget         *uid_min_spin;
+  GtkWidget         *uid_max_spin;
+  GtkWidget         *gid_min_spin;
+  GtkWidget         *gid_max_spin;
+  GtkWidget         *posix_expander;
+  GtkWidget         *posix_hints_label;
   GtkWidget         *error_label;
   GtkWidget         *connect_btn;
   GtkWidget         *cancel_btn;
@@ -275,6 +282,17 @@ build_profile (DialogData *d)
   sbv_profile_set_use_ldaps (p, gtk_check_button_get_active (GTK_CHECK_BUTTON (d->use_ldaps_check)));
   sbv_profile_set_skip_cert (p, gtk_check_button_get_active (GTK_CHECK_BUTTON (d->skip_cert_check)));
 
+  /* POSIX UID/GID ranges: 0 in the spinner means "unset → use defaults",
+   * which we map back to -1 so the persistence layer omits the key. */
+  gint64 uid_min = (gint64) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->uid_min_spin));
+  gint64 uid_max = (gint64) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->uid_max_spin));
+  gint64 gid_min = (gint64) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->gid_min_spin));
+  gint64 gid_max = (gint64) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->gid_max_spin));
+  sbv_profile_set_uid_min (p, uid_min > 0 ? uid_min : -1);
+  sbv_profile_set_uid_max (p, uid_max > 0 ? uid_max : -1);
+  sbv_profile_set_gid_min (p, gid_min > 0 ? gid_min : -1);
+  sbv_profile_set_gid_max (p, gid_max > 0 ? gid_max : -1);
+
   return p;
 }
 
@@ -356,6 +374,20 @@ validate_inputs (DialogData *d, gboolean require_password)
       gtk_widget_set_visible (d->error_label, TRUE);
       return FALSE;
     }
+  }
+
+  /* Range sanity: if both min and max are set (>0), max must be >= min. */
+  gint64 uid_min = (gint64) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->uid_min_spin));
+  gint64 uid_max = (gint64) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->uid_max_spin));
+  gint64 gid_min = (gint64) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->gid_min_spin));
+  gint64 gid_max = (gint64) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->gid_max_spin));
+  if ((uid_min > 0 && uid_max > 0 && uid_max < uid_min) ||
+      (gid_min > 0 && gid_max > 0 && gid_max < gid_min)) {
+    gtk_label_set_text (GTK_LABEL (d->error_label),
+                        "POSIX range max must be greater than or equal to min.");
+    gtk_widget_set_visible (d->error_label, TRUE);
+    gtk_expander_set_expanded (GTK_EXPANDER (d->posix_expander), TRUE);
+    return FALSE;
   }
   return TRUE;
 }
@@ -479,6 +511,12 @@ build_dialog (GtkWindow         *parent,
   d->use_tls_check   = GTK_WIDGET (gtk_builder_get_object (builder, "use_tls_check"));
   d->use_ldaps_check = GTK_WIDGET (gtk_builder_get_object (builder, "use_ldaps_check"));
   d->skip_cert_check = GTK_WIDGET (gtk_builder_get_object (builder, "skip_cert_check"));
+  d->uid_min_spin    = GTK_WIDGET (gtk_builder_get_object (builder, "uid_min_spin"));
+  d->uid_max_spin    = GTK_WIDGET (gtk_builder_get_object (builder, "uid_max_spin"));
+  d->gid_min_spin    = GTK_WIDGET (gtk_builder_get_object (builder, "gid_min_spin"));
+  d->gid_max_spin    = GTK_WIDGET (gtk_builder_get_object (builder, "gid_max_spin"));
+  d->posix_expander  = GTK_WIDGET (gtk_builder_get_object (builder, "posix_expander"));
+  d->posix_hints_label = GTK_WIDGET (gtk_builder_get_object (builder, "posix_hints_label"));
   d->error_label     = GTK_WIDGET (gtk_builder_get_object (builder, "error_label"));
   d->connect_btn     = GTK_WIDGET (gtk_builder_get_object (builder, "connect_btn"));
   d->cancel_btn      = GTK_WIDGET (gtk_builder_get_object (builder, "cancel_btn"));
@@ -519,6 +557,34 @@ build_dialog (GtkWindow         *parent,
                                   sbv_profile_get_use_ldaps (edit_profile));
     gtk_check_button_set_active (GTK_CHECK_BUTTON (d->skip_cert_check),
                                   sbv_profile_get_skip_cert (edit_profile));
+
+    /* POSIX ranges: -1 in the profile means "unset", which the spinner shows
+     * as 0. Auto-expand the section if any value is customised so the user
+     * can see what's saved without hunting for it. */
+    gint64 uid_min = sbv_profile_get_uid_min (edit_profile);
+    gint64 uid_max = sbv_profile_get_uid_max (edit_profile);
+    gint64 gid_min = sbv_profile_get_gid_min (edit_profile);
+    gint64 gid_max = sbv_profile_get_gid_max (edit_profile);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (d->uid_min_spin), uid_min > 0 ? uid_min : 0);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (d->uid_max_spin), uid_max > 0 ? uid_max : 0);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (d->gid_min_spin), gid_min > 0 ? gid_min : 0);
+    gtk_spin_button_set_value (GTK_SPIN_BUTTON (d->gid_max_spin), gid_max > 0 ? gid_max : 0);
+    if (uid_min > 0 || uid_max > 0 || gid_min > 0 || gid_max > 0)
+      gtk_expander_set_expanded (GTK_EXPANDER (d->posix_expander), TRUE);
+
+    /* Show what the resolved hints will be, sourced from the profile only
+     * (no live DC probe in this dialog — the Suggest button will refresh
+     * with msSFU30 values when used). */
+    SbvIdmapHints *hints = sbv_idmap_hints_from_profile (edit_profile);
+    char *hint_text = g_strdup_printf (
+      "Effective range: UID %" G_GINT64_FORMAT "–%" G_GINT64_FORMAT
+      ", GID %" G_GINT64_FORMAT "–%" G_GINT64_FORMAT " (source: %s)",
+      hints->uid_min, hints->uid_max, hints->gid_min, hints->gid_max,
+      hints->source ?: "?");
+    gtk_label_set_text (GTK_LABEL (d->posix_hints_label), hint_text);
+    gtk_widget_set_visible (d->posix_hints_label, TRUE);
+    g_free (hint_text);
+    sbv_idmap_hints_free (hints);
   }
 
   /* Pre-fill domain from the local system when not editing a saved profile */
