@@ -53,6 +53,18 @@ extract_label (const char *dn)
   return comma ? g_strndup (start, comma - start) : g_strdup (start);
 }
 
+/* GCompareDataFunc: case-insensitive label comparator for SbvLdapNode so
+ * the browser presents children alphabetically rather than in DC return
+ * order. */
+static int
+compare_nodes_by_label (gconstpointer a, gconstpointer b, gpointer user_data)
+{
+  (void) user_data;
+  const char *la = sbv_ldap_node_get_label ((SbvLdapNode *) a);
+  const char *lb = sbv_ldap_node_get_label ((SbvLdapNode *) b);
+  return g_utf8_collate (la ?: "", lb ?: "");
+}
+
 /* ── Children (one-level) ──────────────────────────────────────────────── */
 
 /* Worker: ONELEVEL search returning child entries with all their
@@ -111,6 +123,8 @@ children_thread (GTask *task, gpointer source, gpointer task_data,
 
   ldap_msgfree (result);
   sbv_connection_release_ldap (conn);
+
+  g_list_store_sort (store, compare_nodes_by_label, NULL);
 
   g_task_return_pointer (task, store, g_object_unref);
 }

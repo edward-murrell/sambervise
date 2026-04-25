@@ -106,11 +106,13 @@ can pick it up later without re-litigating decisions.
   callback issues the LDAP search on first expand) and a right detail
   pane that renders the selected entry's attributes using the same
   raw-attrs row format as the other panels.
-- Follow-ups deferred:
-  - Don't show expander arrow for non-container entries.
-  - Arbitrary LDAP filter search box.
-  - Per-attribute add/modify/delete (editable mode).
-  - Sort children alphabetically (currently in DC return order).
+- Follow-ups:
+  - *(DONE — 0.1.8)* Sort children alphabetically — `children_thread`
+    now sorts the `GListStore<SbvLdapNode>` by label (case-insensitive
+    `g_utf8_collate`) before returning.
+  - Don't show expander arrow for non-container entries. *(open)*
+  - Arbitrary LDAP filter search box. *(open)*
+  - Per-attribute add/modify/delete (editable mode). *(open)*
 
 ## Connection management
 
