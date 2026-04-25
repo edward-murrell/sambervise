@@ -164,6 +164,31 @@
                             </child>
                           </object>
                         </child>
+                        <child>
+                          <object class="GtkListBoxRow" id="nav_ldap_row">
+                            <child>
+                              <object class="GtkBox">
+                                <property name="spacing">10</property>
+                                <property name="margin-top">8</property>
+                                <property name="margin-bottom">8</property>
+                                <property name="margin-start">12</property>
+                                <property name="margin-end">12</property>
+                                <child>
+                                  <object class="GtkImage">
+                                    <property name="icon-name">view-list-bullet-symbolic</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label">Raw LDAP</property>
+                                    <property name="xalign">0</property>
+                                    <property name="hexpand">true</property>
+                                  </object>
+                                </child>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <!-- Spacer pushes everything above to the top -->

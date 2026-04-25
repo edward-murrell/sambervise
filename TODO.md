@@ -92,16 +92,25 @@ can pick it up later without re-litigating decisions.
 
 ## LDAP browser
 
-### 6. Raw LDAP browser panel (read-only first cut)
-- New "Raw LDAP" entry in the sidebar nav, **under "Computers"**.
-- `GtkTreeListModel`-backed tree of containers/OUs starting at the base DN,
-  lazy-loaded per node (one-level scope on expand).
-- Selecting a leaf node shows all attributes using the existing raw-attrs
-  renderer (the same one the users/groups/computers detail panes use under
-  "All LDAP Attributes").
-- **Tree navigation only** to start — no arbitrary LDAP filter search box yet.
-- **Read-only** initially. Per-attribute add/modify/delete will land in a
-  follow-up iteration once the browser shape settles.
+### 6. Raw LDAP browser panel (read-only first cut)  *(DONE — 0.1.5)*
+- New "Raw LDAP" entry in the sidebar nav, under "Computers".
+- Model: `model/sbv-ldap-node.{h,c}` (`SbvLdapNode` GObject — DN, label,
+  lazy children store, loaded flag, raw attrs hashtable).
+- Backend: `backend/sbv-ldap-browse.{h,c}` —
+  `sbv_ldap_browse_children_async` (LDAP one-level search, returns a
+  `GListStore<SbvLdapNode>` with each child's full attribute dump) and
+  `sbv_ldap_browse_attrs_async` (base scope, used for the root which has
+  no parent listing).
+- UI: `ui/sbv-ldap-panel.{h,c}` — `GtkBox` subclass with a left
+  `GtkListView` over a `GtkTreeListModel` (lazy `create_child_model`
+  callback issues the LDAP search on first expand) and a right detail
+  pane that renders the selected entry's attributes using the same
+  raw-attrs row format as the other panels.
+- Follow-ups deferred:
+  - Don't show expander arrow for non-container entries.
+  - Arbitrary LDAP filter search box.
+  - Per-attribute add/modify/delete (editable mode).
+  - Sort children alphabetically (currently in DC return order).
 
 ## Connection management
 

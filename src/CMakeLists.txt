@@ -28,6 +28,7 @@ add_executable(sambervise
     model/sbv-group.c
     model/sbv-computer.c
     model/sbv-profile.c
+    model/sbv-ldap-node.c
     backend/sbv-connection.c
     backend/sbv-dns.c
     backend/sbv-profiles.c
@@ -36,6 +37,7 @@ add_executable(sambervise
     backend/sbv-computers-backend.c
     backend/sbv-idmap-hints.c
     backend/sbv-collisions.c
+    backend/sbv-ldap-browse.c
     ui/sbv-window.c
     ui/sbv-connect-dialog.c
     ui/sbv-password-dialog.c
@@ -45,6 +47,7 @@ add_executable(sambervise
     ui/sbv-create-user-dialog.c
     ui/sbv-create-group-dialog.c
     ui/sbv-create-computer-dialog.c
+    ui/sbv-ldap-panel.c
     ${GRESOURCE_C}
 )
 
