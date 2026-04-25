@@ -132,21 +132,22 @@ can pick it up later without re-litigating decisions.
 
 ## UI visibility / inspection
 
-### 7. Show the active connection's UID/GID ranges in the UI  *(PARTIAL — 0.1.7)*
-- Done in 0.1.7: Add/Edit Connection dialog gained a collapsible "POSIX
-  UID/GID ranges" section with editable spinners for uid-min/uid-max/
-  gid-min/gid-max. 0 = "use default", which translates to `-1` in the
-  profile so the persistence layer omits the key. Edit-mode also shows a
-  one-line "Effective range … (source: …)" caption built from
+### 7. Show the active connection's UID/GID ranges in the UI  *(DONE — 0.1.7)*
+- Add/Edit Connection dialog gained a collapsible "POSIX UID/GID ranges"
+  section with editable spinners for uid-min/uid-max/gid-min/gid-max.
+  0 = "use default", which translates to `-1` in the profile so the
+  persistence layer omits the key. Edit-mode also shows a one-line
+  "Effective range … (source: …)" caption built from
   `sbv_idmap_hints_from_profile`, surfacing `SbvIdmapHints.source`.
-- Still open:
-  - "Probe DC" button in the dialog that calls
-    `sbv_idmap_hints_query_async` to display the live `msSFU30` hints —
-    needs a way to acquire/borrow an LDAP connection from edit-mode (the
-    edit dialog has no live conn of its own).
-  - A status row on the users/groups panels showing the resolved range +
-    `next_*_hint` once a connection is active, so an admin can confirm
-    what the Suggest button will use without opening the edit dialog.
+- Users and Groups panels gained a top status row showing the resolved
+  range, DC-published `next_*_hint` values, and the source attribution.
+  Populated by `sbv_idmap_hints_query_async` on panel load (one probe per
+  connection, cached for the session — Suggest reuses the cache).
+- Deferred follow-ups (open):
+  - "Probe DC" button in the connect/edit dialog that calls
+    `sbv_idmap_hints_query_async` directly (would need a way to
+    acquire/borrow an LDAP connection from edit-mode where there is no
+    live conn of its own).
   - An "About this connection" sidebar entry / popover.
 
 ## Open questions / deferred

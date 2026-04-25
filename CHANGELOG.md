@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (10000–29999). When editing an existing profile, the dialog also shows
   the effective range and where the values came from (profile config or
   defaults).
+- Status row at the top of the Users and Groups panels showing the
+  resolved UID/GID range for the active connection, plus the DC's
+  `msSFU30MaxUidNumber`/`MaxGidNumber` "next hint" values when published,
+  and a source attribution string. Populated automatically on connect
+  (one DC probe, cached for the session).
 
 ## [0.1.6] - 2026-04-25
 
