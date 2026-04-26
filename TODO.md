@@ -110,7 +110,12 @@ can pick it up later without re-litigating decisions.
   - *(DONE — 0.1.8)* Sort children alphabetically — `children_thread`
     now sorts the `GListStore<SbvLdapNode>` by label (case-insensitive
     `g_utf8_collate`) before returning.
-  - Don't show expander arrow for non-container entries. *(open)*
+  - *(DONE — 0.1.9)* Don't show expander arrow for non-container
+    entries — `SbvLdapNode` gained a tristate `has_children` field
+    populated from the DC's `hasSubordinates` operational attribute
+    (requested explicitly alongside `*` since it's operational).
+    `create_child_model` returns NULL for known leaves so GTK marks
+    them non-expandable. Unknown nodes still get an expander.
   - Arbitrary LDAP filter search box. *(open)*
   - Per-attribute add/modify/delete (editable mode). *(open)*
 

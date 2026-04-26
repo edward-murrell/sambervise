@@ -33,4 +33,12 @@ void         sbv_ldap_node_set_loaded    (SbvLdapNode *self, gboolean v);
 GHashTable  *sbv_ldap_node_get_attrs     (SbvLdapNode *self);
 void         sbv_ldap_node_set_attrs     (SbvLdapNode *self, GHashTable *attrs);
 
+/* Tristate: -1 unknown (default), 0 known leaf, 1 known to have children.
+ * Sourced from the LDAP `hasSubordinates` operational attribute when the
+ * server publishes it. The browser uses this to suppress the expander on
+ * leaf nodes; nodes in the "unknown" state still get an expander so the
+ * tree remains explorable when the attribute isn't returned. */
+int          sbv_ldap_node_get_has_children (SbvLdapNode *self);
+void         sbv_ldap_node_set_has_children (SbvLdapNode *self, int v);
+
 G_END_DECLS

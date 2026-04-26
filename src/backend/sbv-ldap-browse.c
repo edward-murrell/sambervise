@@ -53,6 +53,21 @@ extract_label (const char *dn)
   return comma ? g_strndup (start, comma - start) : g_strdup (start);
 }
 
+/* Reads the `hasSubordinates` operational attribute from the collected
+ * attrs table and translates "TRUE"/"FALSE" → 1/0 (or -1 if absent or
+ * unparseable). Lets the UI suppress the tree expander on known-leaf
+ * entries. */
+static int
+parse_has_subordinates (GHashTable *attrs)
+{
+  if (!attrs) return -1;
+  char **vals = g_hash_table_lookup (attrs, "hasSubordinates");
+  if (!vals || !vals[0]) return -1;
+  if (g_ascii_strcasecmp (vals[0], "TRUE")  == 0) return 1;
+  if (g_ascii_strcasecmp (vals[0], "FALSE") == 0) return 0;
+  return -1;
+}
+
 /* GCompareDataFunc: case-insensitive label comparator for SbvLdapNode so
  * the browser presents children alphabetically rather than in DC return
  * order. */
@@ -90,8 +105,11 @@ children_thread (GTask *task, gpointer source, gpointer task_data,
   LDAPMessage    *result = NULL;
   struct timeval  tv     = { 30, 0 };
 
+  /* "*" returns all user attrs; operational attrs like hasSubordinates
+   * must be named explicitly, so add it alongside. */
+  char *attrs[] = { (char *) "*", (char *) "hasSubordinates", NULL };
   int rc = ldap_search_ext_s (ld, parent_dn, LDAP_SCOPE_ONELEVEL,
-                               "(objectClass=*)", NULL, 0,
+                               "(objectClass=*)", attrs, 0,
                                NULL, NULL, &tv, LDAP_NO_LIMIT, &result);
   if (rc != LDAP_SUCCESS) {
     sbv_connection_release_ldap (conn);
@@ -114,7 +132,9 @@ children_thread (GTask *task, gpointer source, gpointer task_data,
       SbvLdapNode *node  = sbv_ldap_node_new (child_dn, label);
       g_free (label);
 
-      sbv_ldap_node_set_attrs (node, collect_attrs (ld, entry));
+      GHashTable *raw = collect_attrs (ld, entry);
+      sbv_ldap_node_set_has_children (node, parse_has_subordinates (raw));
+      sbv_ldap_node_set_attrs (node, raw);
 
       g_list_store_append (store, node);
       g_object_unref (node);
@@ -175,8 +195,9 @@ attrs_thread (GTask *task, gpointer source, gpointer task_data,
   LDAPMessage    *result = NULL;
   struct timeval  tv     = { 10, 0 };
 
+  char *req_attrs[] = { (char *) "*", (char *) "hasSubordinates", NULL };
   int rc = ldap_search_ext_s (ld, dn, LDAP_SCOPE_BASE,
-                               "(objectClass=*)", NULL, 0,
+                               "(objectClass=*)", req_attrs, 0,
                                NULL, NULL, &tv, 1, &result);
   if (rc != LDAP_SUCCESS) {
     sbv_connection_release_ldap (conn);

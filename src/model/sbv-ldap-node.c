@@ -7,6 +7,7 @@ struct _SbvLdapNode {
   GListStore *children;    /* lazy: NULL until first request           */
   gboolean    loaded;
   GHashTable *attrs;       /* GHashTable<char*, GStrv>, owned          */
+  int         has_children; /* -1 unknown, 0 leaf, 1 has children       */
 };
 
 G_DEFINE_TYPE (SbvLdapNode, sbv_ldap_node, G_TYPE_OBJECT)
@@ -37,8 +38,9 @@ SbvLdapNode *
 sbv_ldap_node_new (const char *dn, const char *label)
 {
   SbvLdapNode *n = g_object_new (SBV_TYPE_LDAP_NODE, NULL);
-  n->dn    = g_strdup (dn);
-  n->label = g_strdup (label);
+  n->dn           = g_strdup (dn);
+  n->label        = g_strdup (label);
+  n->has_children = -1;
   return n;
 }
 
@@ -66,3 +68,6 @@ sbv_ldap_node_set_attrs (SbvLdapNode *self, GHashTable *attrs)
   g_clear_pointer (&self->attrs, g_hash_table_unref);
   self->attrs = attrs;
 }
+
+int  sbv_ldap_node_get_has_children (SbvLdapNode *self)        { return self->has_children; }
+void sbv_ldap_node_set_has_children (SbvLdapNode *self, int v) { self->has_children = v; }

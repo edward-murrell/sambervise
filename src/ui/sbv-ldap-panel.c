@@ -150,14 +150,19 @@ on_children_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
 }
 
 /* GtkTreeListModelCreateModelFunc: GTK calls this once per item to obtain
- * its child model. We always return the node's children store (so every
- * row appears expandable); on first request we kick off an async LDAP
- * one-level search to populate it. */
+ * its child model. Returning NULL marks the row as a leaf (no expander).
+ * For nodes we know are leaves (`hasSubordinates: FALSE`) we return NULL
+ * up-front so admins aren't teased with empty expanders; otherwise we
+ * return the node's children store and kick off an async one-level
+ * search on first request. */
 static GListModel *
 create_child_model (gpointer item, gpointer user_data)
 {
   SbvLdapPanel *self = SBV_LDAP_PANEL (user_data);
   SbvLdapNode  *node = SBV_LDAP_NODE (item);
+
+  if (sbv_ldap_node_get_has_children (node) == 0)
+    return NULL;
 
   GListStore *children = sbv_ldap_node_get_children (node);
 
