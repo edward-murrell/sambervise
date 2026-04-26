@@ -2,12 +2,46 @@
 #include "ui/sbv-window.h"
 #include "backend/sbv-profiles.h"
 
+#include <adwaita.h>
+
 struct _SbvApp {
   AdwApplication  parent;
   GListStore     *profiles_store;
 };
 
 G_DEFINE_TYPE (SbvApp, sbv_app, ADW_TYPE_APPLICATION)
+
+/* Application "about" action: presents an AdwAboutWindow with the
+ * project's identity and license, transient over the active window. */
+static void
+on_about_action (GSimpleAction *action, GVariant *param, gpointer user_data)
+{
+  (void) action; (void) param;
+  GApplication *app = G_APPLICATION (user_data);
+  GtkWindow    *win = gtk_application_get_active_window (GTK_APPLICATION (app));
+
+  const char *developers[] = { "ekm", NULL };
+
+  GtkWidget *about = adw_about_window_new ();
+  g_object_set (about,
+                "transient-for",      win,
+                "modal",              TRUE,
+                "application-name",   "Sambervise",
+                "application-icon",   "network-server",
+                "version",            PACKAGE_VERSION,
+                "developer-name",     "ekm",
+                "developers",         developers,
+                "comments",
+                  "Linux GUI for remotely administering Samba 4 "
+                  "Active Directory Domain Controllers.",
+                "website",            "https://github.com/edward-murrell/sambervise",
+                "issue-url",          "https://github.com/edward-murrell/sambervise/issues",
+                "license-type",       GTK_LICENSE_GPL_3_0,
+                "copyright",          "© 2026 ekm",
+                NULL);
+
+  gtk_window_present (GTK_WINDOW (about));
+}
 
 static void
 sbv_app_activate (GApplication *app)
@@ -29,6 +63,13 @@ sbv_app_startup (GApplication *app)
 {
   G_APPLICATION_CLASS (sbv_app_parent_class)->startup (app);
   adw_init ();
+
+  /* Application-scoped actions referenced by the primary menu. */
+  static const GActionEntry app_actions[] = {
+    { "about", on_about_action, NULL, NULL, NULL, { 0, 0, 0 } },
+  };
+  g_action_map_add_action_entries (G_ACTION_MAP (app), app_actions,
+                                    G_N_ELEMENTS (app_actions), app);
 
   /* Register our bundled symbolic icons so they render even when the
    * user's icon theme (e.g. Mint-X) doesn't inherit from Adwaita and is

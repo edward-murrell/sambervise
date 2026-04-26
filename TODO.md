@@ -159,7 +159,8 @@ can pick it up later without re-litigating decisions.
 
 ## Open questions / deferred
 
-- About page (already in `todo`)
+- ~~About page (already in `todo`)~~ *(DONE — 0.1.9: hamburger menu in
+  header bar opens an `AdwAboutWindow`.)*
 - Krb default-ticket indication in profiles list (already in `todo`)
 - Should delete operations also offer a "move to recycle bin" path on AD DCs
   that have the AD Recycle Bin feature enabled? Decide once basic delete

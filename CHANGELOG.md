@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.9] - 2026-04-26
 
+### Added
+- About dialog: a hamburger menu was added to the window header bar with
+  an "About Sambervise" entry that opens an `AdwAboutWindow` showing the
+  application name, version, license (GPL-3.0), website and issue
+  tracker links.
+
 ### Changed
 - Raw LDAP browser: leaf entries no longer show a tree expander arrow.
   The browser now reads the `hasSubordinates` operational attribute
