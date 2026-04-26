@@ -62,6 +62,7 @@ target_compile_definitions(sambervise PRIVATE
 target_link_libraries(sambervise PRIVATE
     PkgConfig::GTK4
     PkgConfig::ADW
+    PkgConfig::KRB5
     ${LDAP_LIB}
     ${LBER_LIB}
 )

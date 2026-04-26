@@ -150,12 +150,24 @@ can pick it up later without re-litigating decisions.
   range, DC-published `next_*_hint` values, and the source attribution.
   Populated by `sbv_idmap_hints_query_async` on panel load (one probe per
   connection, cached for the session — Suggest reuses the cache).
+  *(0.1.10: the per-panel row was removed and the same information moved
+  into a new window-level status bar that also shows server and
+  principal — see "Status bar" item below.)*
 - Deferred follow-ups (open):
   - "Probe DC" button in the connect/edit dialog that calls
     `sbv_idmap_hints_query_async` directly (would need a way to
     acquire/borrow an LDAP connection from edit-mode where there is no
     live conn of its own).
   - An "About this connection" sidebar entry / popover.
+
+## Window chrome
+
+### Status bar  *(DONE — 0.1.10)*
+- Window-level status bar at the bottom shows the active connection's
+  server (`host:port`), authentication mode (Kerberos vs simple-bind
+  DN), and the resolved POSIX UID/GID range with source attribution.
+  Only visible while connected. Populated from
+  `sbv_idmap_hints_query_async` once per connect.
 
 ## Open questions / deferred
 

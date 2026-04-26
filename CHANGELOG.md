@@ -5,6 +5,26 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-04-26
+
+### Added
+- Bottom status bar showing the active connection at a glance: server
+  (`host:port`), bound identity (the Kerberos principal read from the
+  local credential cache via libkrb5, e.g.
+  `Authentication: Kerberos (alice@EXAMPLE.COM)`; the bind DN for simple
+  auth), and the resolved POSIX UID/GID range with source attribution.
+  Only visible while connected.
+
+### Build
+- New build dependency on `libkrb5-dev` (and `libkrb5-3` at runtime) so
+  the status bar can read the principal from the default credential
+  cache.
+
+### Changed
+- The UID/GID range strip previously shown at the top of the Users and
+  Groups panels has moved into the new window-level status bar, so the
+  same information is visible regardless of which panel is open.
+
 ## [0.1.9] - 2026-04-26
 
 ### Added

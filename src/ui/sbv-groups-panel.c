@@ -20,9 +20,6 @@
 struct _SbvGroupsPanel {
   GtkBox         parent;
 
-  /* Status line shown above outer_stack: resolved UID/GID range + source. */
-  GtkWidget     *idmap_status_label;
-
   GtkWidget     *outer_stack;    /* "loading" | "empty" | "split" */
   GtkWidget     *search_entry;
   GtkWidget     *add_btn;
@@ -670,54 +667,6 @@ group_suggest_with_hints (SbvGroupsPanel *self)
                                        NULL, on_group_suggest_done, ctx);
 }
 
-/* Refresh the UID/GID range status line from cached hints. */
-static void
-group_update_idmap_status_label (SbvGroupsPanel *self)
-{
-  if (!self->idmap_status_label) return;
-  if (!self->idmap_hints) {
-    gtk_widget_set_visible (self->idmap_status_label, FALSE);
-    return;
-  }
-  SbvIdmapHints *h = self->idmap_hints;
-  GString *s = g_string_new (NULL);
-  g_string_append_printf (s,
-    "UID %" G_GINT64_FORMAT "–%" G_GINT64_FORMAT
-    "   ·   GID %" G_GINT64_FORMAT "–%" G_GINT64_FORMAT,
-    h->uid_min, h->uid_max, h->gid_min, h->gid_max);
-  if (h->next_uid_hint >= 0)
-    g_string_append_printf (s, "   ·   next UID hint %" G_GINT64_FORMAT,
-                             h->next_uid_hint);
-  if (h->next_gid_hint >= 0)
-    g_string_append_printf (s, "   ·   next GID hint %" G_GINT64_FORMAT,
-                             h->next_gid_hint);
-  if (h->source && *h->source)
-    g_string_append_printf (s, "   ·   source: %s", h->source);
-  gtk_label_set_text (GTK_LABEL (self->idmap_status_label), s->str);
-  gtk_widget_set_visible (self->idmap_status_label, TRUE);
-  g_string_free (s, TRUE);
-}
-
-/* Eager hints probe completion: cache hints and update the status row. */
-static void
-on_group_hints_for_status (GObject *source, GAsyncResult *result,
-                            gpointer user_data)
-{
-  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
-  SbvConnection  *conn = SBV_CONNECTION (source);
-  GError         *err  = NULL;
-
-  SbvIdmapHints *hints = sbv_idmap_hints_query_finish (conn, result, &err);
-  if (!hints) {
-    if (err) g_error_free (err);
-    SbvProfile *profile = sbv_connection_get_profile (conn);
-    hints = sbv_idmap_hints_from_profile (profile);
-  }
-  g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
-  self->idmap_hints = hints;
-  group_update_idmap_status_label (self);
-}
-
 /* Lazy-load context for the hints probe. */
 typedef struct {
   SbvGroupsPanel *panel;
@@ -744,7 +693,6 @@ on_group_hints_then_suggest (GObject *source, GAsyncResult *result,
 
   g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
   self->idmap_hints = hints;
-  group_update_idmap_status_label (self);
 
   group_suggest_with_hints (self);
   g_free (ctx);
@@ -1122,22 +1070,12 @@ sbv_groups_panel_load (SbvGroupsPanel *self, SbvConnection *conn)
 {
   /* Drop cached hints when the connection changes — they're tied to the
    * profile's range and the DC's published values. */
-  if (self->conn != conn) {
+  if (self->conn != conn)
     g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
-    group_update_idmap_status_label (self);
-  }
 
   self->conn = conn;
   gtk_stack_set_visible_child_name (GTK_STACK (self->outer_stack), "loading");
   sbv_groups_list_async (conn, NULL, on_groups_loaded, self);
-
-  /* Probe idmap hints once per connection so the status row populates
-   * without waiting for the user to press Suggest. */
-  if (!self->idmap_hints) {
-    SbvProfile *profile = sbv_connection_get_profile (conn);
-    sbv_idmap_hints_query_async (conn, profile, NULL,
-                                  on_group_hints_for_status, self);
-  }
 }
 
 /* ── Raw attrs helpers ──────────────────────────────────────────────────── */
@@ -1285,19 +1223,6 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
 {
   gtk_orientable_set_orientation (GTK_ORIENTABLE (self), GTK_ORIENTATION_VERTICAL);
   gtk_widget_set_vexpand (GTK_WIDGET (self), TRUE);
-
-  /* ── Idmap range status line (hidden until hints are loaded) ── */
-  self->idmap_status_label = gtk_label_new (NULL);
-  gtk_label_set_xalign (GTK_LABEL (self->idmap_status_label), 0);
-  gtk_label_set_wrap   (GTK_LABEL (self->idmap_status_label), TRUE);
-  gtk_widget_add_css_class (self->idmap_status_label, "dim-label");
-  gtk_widget_add_css_class (self->idmap_status_label, "caption");
-  gtk_widget_set_margin_start  (self->idmap_status_label, 12);
-  gtk_widget_set_margin_end    (self->idmap_status_label, 12);
-  gtk_widget_set_margin_top    (self->idmap_status_label, 4);
-  gtk_widget_set_margin_bottom (self->idmap_status_label, 4);
-  gtk_widget_set_visible (self->idmap_status_label, FALSE);
-  gtk_box_append (GTK_BOX (self), self->idmap_status_label);
 
   self->outer_stack = gtk_stack_new ();
   gtk_widget_set_vexpand (self->outer_stack, TRUE);

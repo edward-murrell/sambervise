@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(sambervise VERSION 0.1.9 LANGUAGES C)
+project(sambervise VERSION 0.1.10 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -11,6 +11,7 @@ pkg_check_modules(ADW  REQUIRED IMPORTED_TARGET libadwaita-1)
 
 find_library(LDAP_LIB ldap REQUIRED)
 find_library(LBER_LIB lber REQUIRED)
+pkg_check_modules(KRB5 REQUIRED IMPORTED_TARGET krb5)
 
 find_program(GLIB_COMPILE_RESOURCES glib-compile-resources REQUIRED)
 find_program(GLIB_COMPILE_SCHEMAS   glib-compile-schemas   REQUIRED)
@@ -34,7 +35,7 @@ set(CPACK_DEBIAN_FILE_NAME                "DEB-DEFAULT")
 set(CPACK_DEBIAN_PACKAGE_SECTION          "admin")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY         "optional")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libgtk-4-1 (>= 4.0), libadwaita-1-0 (>= 1.0), libldap-2.5-0, libsasl2-modules-gssapi-mit")
+    "libgtk-4-1 (>= 4.0), libadwaita-1-0 (>= 1.0), libldap-2.5-0, libkrb5-3, libsasl2-modules-gssapi-mit")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
     "${CMAKE_SOURCE_DIR}/packaging/postinst"
     "${CMAKE_SOURCE_DIR}/packaging/postrm")

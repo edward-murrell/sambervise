@@ -5,6 +5,9 @@
 #include "sbv-groups-panel.h"
 #include "sbv-computers-panel.h"
 #include "sbv-ldap-panel.h"
+#include "../backend/sbv-idmap-hints.h"
+
+#include <krb5.h>
 
 struct _SbvWindow {
   AdwApplicationWindow  parent;
@@ -22,6 +25,13 @@ struct _SbvWindow {
   GtkButton            *add_conn_btn;
   GtkSpinner           *spinner;
 
+  /* Status bar (bottom) */
+  GtkWidget            *status_separator;
+  GtkWidget            *status_bar;
+  GtkWidget            *status_server_label;
+  GtkWidget            *status_principal_label;
+  GtkWidget            *status_idmap_label;
+
   /* Runtime state */
   GListStore           *profiles_store;  /* owned */
   SbvConnection        *conn;
@@ -38,6 +48,110 @@ G_DEFINE_TYPE (SbvWindow, sbv_window, ADW_TYPE_APPLICATION_WINDOW)
 void sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profile);
 static void rebuild_profiles_list (SbvWindow *self);
 static void on_edit_profile_clicked (GtkButton *btn, gpointer user_data);
+
+/* ── Status bar ─────────────────────────────────────────────────────────── */
+
+/* Reads the default Kerberos credential cache and returns the bound
+ * principal in canonical form (e.g. `alice@EXAMPLE.COM`). Returns NULL
+ * if no cache is present, no creds, or any libkrb5 step fails — caller
+ * frees with g_free. This is a quick, blocking syscall-shaped read, so
+ * we run it on the main thread; if it ever turns out to stall we can
+ * push it onto a worker. */
+static char *
+read_default_krb5_principal (void)
+{
+  krb5_context     ctx       = NULL;
+  krb5_ccache      cc        = NULL;
+  krb5_principal   princ     = NULL;
+  char            *unparsed  = NULL;
+  char            *out       = NULL;
+
+  if (krb5_init_context (&ctx) != 0)
+    return NULL;
+  if (krb5_cc_default (ctx, &cc) == 0 &&
+      krb5_cc_get_principal (ctx, cc, &princ) == 0 &&
+      krb5_unparse_name (ctx, princ, &unparsed) == 0)
+    out = g_strdup (unparsed);
+
+  if (unparsed) krb5_free_unparsed_name (ctx, unparsed);
+  if (princ)    krb5_free_principal     (ctx, princ);
+  if (cc)       krb5_cc_close           (ctx, cc);
+  krb5_free_context (ctx);
+  return out;
+}
+
+/* Writes the server (host:port) and bound identity into the status bar.
+ * Kerberos: reads the local credential cache to format
+ * "Authentication: Kerberos (<principal>)". Simple: shows the bind DN.
+ * The UID/GID range is filled in separately once the async hints probe
+ * returns. */
+static void
+status_bar_update_identity (SbvWindow *self)
+{
+  if (!self->conn || !self->active_profile) return;
+
+  const char *host = sbv_connection_get_host (self->conn);
+  int         port = sbv_profile_get_port    (self->active_profile);
+  char *server = g_strdup_printf ("Server: %s:%d", host ?: "?", port);
+  gtk_label_set_text (GTK_LABEL (self->status_server_label), server);
+  g_free (server);
+
+  char *text = NULL;
+  if (sbv_profile_get_auth_type (self->active_profile) == SBV_AUTH_KERBEROS) {
+    char *princ = read_default_krb5_principal ();
+    text = princ
+      ? g_strdup_printf ("Authentication: Kerberos (%s)", princ)
+      : g_strdup        ("Authentication: Kerberos");
+    g_free (princ);
+  } else {
+    const char *bind = sbv_profile_get_bind_dn (self->active_profile);
+    text = g_strdup_printf ("Bind DN: %s", bind && *bind ? bind : "(simple)");
+  }
+  gtk_label_set_text (GTK_LABEL (self->status_principal_label), text);
+  g_free (text);
+
+  /* Idmap label seeded with a placeholder until the probe returns. */
+  gtk_label_set_text (GTK_LABEL (self->status_idmap_label), "UID/GID: …");
+
+  gtk_widget_set_visible (self->status_separator, TRUE);
+  gtk_widget_set_visible (self->status_bar,       TRUE);
+}
+
+/* Async-completion: format the resolved range (and source) into the
+ * status bar. Profile-only fallback applies on probe failure so the
+ * label still says something meaningful. */
+static void
+on_status_idmap_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  SbvWindow     *self = SBV_WINDOW (user_data);
+  SbvConnection *conn = SBV_CONNECTION (source);
+  GError        *err  = NULL;
+
+  /* Bail if the user has since disconnected/reconnected. */
+  if (self->conn != conn) {
+    SbvIdmapHints *h = sbv_idmap_hints_query_finish (conn, result, &err);
+    g_clear_pointer (&h, sbv_idmap_hints_free);
+    if (err) g_error_free (err);
+    return;
+  }
+
+  SbvIdmapHints *h = sbv_idmap_hints_query_finish (conn, result, &err);
+  if (!h) {
+    if (err) g_error_free (err);
+    h = sbv_idmap_hints_from_profile (self->active_profile);
+  }
+
+  GString *s = g_string_new (NULL);
+  g_string_append_printf (s,
+    "UID %" G_GINT64_FORMAT "–%" G_GINT64_FORMAT
+    "   ·   GID %" G_GINT64_FORMAT "–%" G_GINT64_FORMAT,
+    h->uid_min, h->uid_max, h->gid_min, h->gid_max);
+  if (h->source && *h->source)
+    g_string_append_printf (s, "   ·   %s", h->source);
+  gtk_label_set_text (GTK_LABEL (self->status_idmap_label), s->str);
+  g_string_free (s, TRUE);
+  sbv_idmap_hints_free (h);
+}
 
 /* ── Profile row construction ───────────────────────────────────────────── */
 
@@ -299,6 +413,10 @@ sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profi
   sbv_groups_panel_load    (self->groups_panel,    conn);
   sbv_computers_panel_load (self->computers_panel, conn);
   sbv_ldap_panel_load      (self->ldap_panel,      conn);
+
+  status_bar_update_identity (self);
+  sbv_idmap_hints_query_async (conn, profile, NULL,
+                                on_status_idmap_loaded, self);
 }
 
 /* ── GObject / template ─────────────────────────────────────────────────── */
@@ -333,6 +451,11 @@ sbv_window_class_init (SbvWindowClass *klass)
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_separator);
   gtk_widget_class_bind_template_child (wc, SbvWindow, add_conn_btn);
   gtk_widget_class_bind_template_child (wc, SbvWindow, spinner);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, status_separator);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, status_bar);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, status_server_label);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, status_principal_label);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, status_idmap_label);
 }
 
 static void

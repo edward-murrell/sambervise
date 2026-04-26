@@ -236,6 +236,45 @@
                 </child>
               </object>
             </child>
+            <!-- Bottom status bar: server, bound principal, UID/GID ranges -->
+            <child>
+              <object class="GtkSeparator" id="status_separator">
+                <property name="visible">false</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkBox" id="status_bar">
+                <property name="orientation">horizontal</property>
+                <property name="spacing">16</property>
+                <property name="margin-top">3</property>
+                <property name="margin-bottom">3</property>
+                <property name="margin-start">12</property>
+                <property name="margin-end">12</property>
+                <property name="visible">false</property>
+                <child>
+                  <object class="GtkLabel" id="status_server_label">
+                    <property name="xalign">0</property>
+                    <property name="ellipsize">end</property>
+                    <style><class name="caption"/><class name="dim-label"/></style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="status_principal_label">
+                    <property name="xalign">0</property>
+                    <property name="ellipsize">end</property>
+                    <style><class name="caption"/><class name="dim-label"/></style>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="status_idmap_label">
+                    <property name="xalign">1</property>
+                    <property name="hexpand">true</property>
+                    <property name="ellipsize">end</property>
+                    <style><class name="caption"/><class name="dim-label"/></style>
+                  </object>
+                </child>
+              </object>
+            </child>
           </object>
         </child>
       </object>

@@ -263,3 +263,61 @@ sbv_connection_connect_finish (SbvConnection *self,
   (void) self;
   return g_task_propagate_boolean (G_TASK (result), error);
 }
+
+/* ── Who am I? (RFC 4532) ──────────────────────────────────────────────── */
+
+/* Worker: invoke the LDAP "Who am I?" extended op and return the
+ * server-confirmed identity string (with its `dn:` / `u:` scheme prefix
+ * intact — the UI layer decides how to present it). */
+static void
+whoami_thread (GTask *task, gpointer source, gpointer task_data,
+                GCancellable *cancellable)
+{
+  SbvConnection *self = SBV_CONNECTION (source);
+  (void) task_data; (void) cancellable;
+
+  LDAP *ld = sbv_connection_acquire_ldap (self);
+  if (!ld) {
+    sbv_connection_release_ldap (self);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  struct berval *authzid = NULL;
+  int rc = ldap_whoami_s (ld, &authzid, NULL, NULL);
+  sbv_connection_release_ldap (self);
+
+  if (rc != LDAP_SUCCESS) {
+    if (authzid) ber_bvfree (authzid);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Who am I? failed: %s", ldap_err2string (rc));
+    return;
+  }
+
+  char *out = (authzid && authzid->bv_val)
+    ? g_strndup (authzid->bv_val, authzid->bv_len)
+    : g_strdup ("");
+  if (authzid) ber_bvfree (authzid);
+  g_task_return_pointer (task, out, g_free);
+}
+
+void
+sbv_connection_whoami_async (SbvConnection       *self,
+                              GCancellable        *cancellable,
+                              GAsyncReadyCallback  callback,
+                              gpointer             user_data)
+{
+  GTask *task = g_task_new (self, cancellable, callback, user_data);
+  g_task_run_in_thread (task, whoami_thread);
+  g_object_unref (task);
+}
+
+char *
+sbv_connection_whoami_finish (SbvConnection *self,
+                               GAsyncResult  *result,
+                               GError       **error)
+{
+  (void) self;
+  return g_task_propagate_pointer (G_TASK (result), error);
+}

@@ -123,7 +123,7 @@ Use the GObject type system for anything with property notifications or signals 
 ```bash
 # Install build dependencies (Debian/Ubuntu)
 sudo apt install build-essential cmake ninja-build pkg-config \
-    libgtk-4-dev libadwaita-1-dev libldap-dev
+    libgtk-4-dev libadwaita-1-dev libldap-dev libkrb5-dev
 
 # Runtime dependency for Kerberos auth (usually already installed)
 sudo apt install libsasl2-modules-gssapi-mit

@@ -33,6 +33,19 @@ gboolean sbv_connection_connect_finish         (SbvConnection *self,
 
 void     sbv_connection_disconnect (SbvConnection *self);
 
+/* RFC 4532 "Who am I?" extended operation — returns the server's view of
+ * the bound identity (e.g. `dn:CN=Administrator,...` for simple bind, or
+ * `u:Administrator@EXAMPLE.COM` for SASL/GSSAPI). The leading scheme
+ * prefix is left intact for the caller to strip. Returns a newly-allocated
+ * string on success, NULL on failure. */
+void     sbv_connection_whoami_async  (SbvConnection       *self,
+                                        GCancellable        *cancellable,
+                                        GAsyncReadyCallback  callback,
+                                        gpointer             user_data);
+char    *sbv_connection_whoami_finish (SbvConnection *self,
+                                        GAsyncResult  *result,
+                                        GError       **error);
+
 /* Internal: acquire/release the LDAP handle for use in backend threads.
  * Always call release after acquire, even on error. */
 struct ldap *sbv_connection_acquire_ldap (SbvConnection *self);
