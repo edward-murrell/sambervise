@@ -119,6 +119,66 @@ can pick it up later without re-litigating decisions.
   - Arbitrary LDAP filter search box. *(open)*
   - Per-attribute add/modify/delete (editable mode). *(open)*
 
+## Mail-enabled objects
+
+### 9. Contacts  *(open)*
+- Backend: `backend/sbv-contacts-backend.{h,c}` —
+  `sbv_contacts_list_async/finish`, `sbv_contacts_create_async/finish`,
+  `sbv_contacts_delete_async/finish`, `sbv_contacts_update_async/finish`.
+- Model: extend or add `model/sbv-contact.{h,c}` GObject with mail, phone,
+  address fields (mail, proxyAddresses, displayName, cn, sn, givenName,
+  telephoneNumber, mobile, facsimileTelephoneNumber, physicalDeliveryOfficeName,
+  streetAddress, l, st, postalCode, co).
+- UI: new "Contacts" sidebar nav entry + detail pane.
+- Create dialog `ui/sbv-create-contact-dialog.{h,c}`: given/sn, mail, phone,
+  container DN (defaults to `CN=Users,<base>`).
+
+### 10. Mail-enable groups (distribution lists)  *(open)*
+- Backend: extend `sbv_groups_update_async` to handle mail attributes
+  (mail, proxyAddresses, displayName).
+- UI: "Mail" section in group detail pane with editable mail and
+  proxyAddresses fields.
+- Note: requires Exchange for advanced mail routing; Samba 4 supports schema
+  but not full mailbox/moderation features.
+
+## Bulk operations
+
+### 11. Bulk enable/disable and password reset  *(open)*
+- Extend users/computers list views with checkbox selection mode.
+- Bulk action buttons: "Enable Selected", "Disable Selected",
+  "Reset Password for Selected".
+- Confirmation dialog showing count and optionally first N items.
+- Backend: batch LDAP modify operations (single connection, multiple
+  ldap_modify_ext_s calls or single modify with multiple values if
+  supported).
+
+## Kerberos principals
+
+### 13. Computer SPN management  *(open)*
+- Backend: `sbv_computers_set_spn_async/finish` to modify the
+  `servicePrincipalName` LDAP attribute (multi-valued) via add/delete
+  operations.
+- UI: Add/remove SPN controls in the computer detail panel (input field +
+  add button, list with remove buttons per SPN).
+- **Safety guard**: Check `pwdLastSet == 0` (uninitialized account) and
+  disable SPN controls with an explanation: *"Computer must be
+  initialized (joined domain) before SPNs can be registered."*
+  This prevents users from trying to add SPNs to accounts that have no
+  key material and will never work.
+- Rationale: SPNs are only functional when the backing account has key
+  material; a computer account created via Sambervise but not yet joined
+  has `pwdLastSet=0` and is not usable for Kerberos principals.
+
+## Search and filtering
+
+### 12. Advanced search / filtering  *(open)*
+- Add search box to users/groups/computers panels.
+- Filters: enabled/disabled, password age, stale computers (no logon
+  in N days), missing DNS registration.
+- Filter bar with toggles or dropdown menu for common predicates.
+- Backend: LDAP filter construction (e.g. `(&(objectClass=user)(disabled=...))`,
+  timestamp comparisons on `pwdLastSet`, etc.).
+
 ## Connection management
 
 ### 8. Edit connection profiles after creation  *(DONE — 0.1.6)*
