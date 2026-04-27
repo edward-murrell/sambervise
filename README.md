@@ -89,6 +89,14 @@ sudo dpkg -i sambervise_0.1.0_amd64.deb
 
 The package depends on `libgtk-4-1`, `libadwaita-1-0`, `libldap-2.5-0`, and `libsasl2-modules-gssapi-mit`. The GSettings schema cache is updated automatically via the package's postinst script.
 
+## Screenshots
+
+![Users panel showing user list](docs/users1.webp)
+
+- [Users (detailed view)](docs/users2.webp)
+- [Groups panel](docs/groups1.webp)
+- [Computers panel](docs/computers1.webp)
+
 ## Kerberos authentication
 
 For connections using Kerberos, obtain a ticket before launching Sambervise:
