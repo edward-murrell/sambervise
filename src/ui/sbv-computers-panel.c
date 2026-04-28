@@ -36,8 +36,15 @@ struct _SbvComputersPanel {
   GtkWidget     *save_btn;
   GtkWidget     *save_error;
 
-  /* SPN list (read-only) */
-  GtkWidget     *spn_label;
+  /* SPN editor */
+  GtkWidget     *spn_warning_label;  /* shown when pwdLastSet == 0 */
+  GtkWidget     *spn_list_box;       /* one row per current SPN */
+  GtkWidget     *spn_empty_label;    /* shown when working_spns is empty */
+  GtkWidget     *spn_new_entry;
+  GtkWidget     *spn_add_btn;
+  GtkWidget     *spn_save_btn;
+  GtkWidget     *spn_save_error;
+  GPtrArray     *working_spns;       /* (owned) char* entries; staged edits */
 
   /* Raw LDAP attributes (dynamic, rebuilt on selection) */
   GtkWidget     *raw_attrs_box;
@@ -64,6 +71,8 @@ G_DEFINE_TYPE (SbvComputersPanel, sbv_computers_panel, GTK_TYPE_BOX)
 /* ── Forward declarations ───────────────────────────────────────────────── */
 static void populate_raw_attrs      (GtkWidget *box, GHashTable *attrs, int label_width);
 void        sbv_computers_panel_load (SbvComputersPanel *self, SbvConnection *conn);
+static void rebuild_spn_rows         (SbvComputersPanel *self);
+static void update_spn_editability   (SbvComputersPanel *self);
 
 /* ── Row construction ───────────────────────────────────────────────────── */
 
@@ -182,16 +191,24 @@ load_computer_into_detail (SbvComputersPanel *self, SbvComputer *computer)
   gtk_check_button_set_active (GTK_CHECK_BUTTON (self->enabled_check),
                                 sbv_computer_get_enabled (computer));
 
-  /* SPNs */
+  /* SPNs — copy current values into the working list */
+  if (self->working_spns)
+    g_ptr_array_set_size (self->working_spns, 0);
+  else
+    self->working_spns = g_ptr_array_new_with_free_func (g_free);
+
   guint n_spn = sbv_computer_get_spn_count (computer);
   if (n_spn > 0) {
     const char * const *spns = sbv_computer_get_spn (computer);
-    char *joined = g_strjoinv ("\n", (char **) spns);
-    gtk_label_set_text (GTK_LABEL (self->spn_label), joined);
-    g_free (joined);
-  } else {
-    gtk_label_set_text (GTK_LABEL (self->spn_label), "\xe2\x80\x94");
+    for (guint i = 0; spns && spns[i]; i++)
+      g_ptr_array_add (self->working_spns, g_strdup (spns[i]));
   }
+  rebuild_spn_rows (self);
+  update_spn_editability (self);
+  gtk_editable_set_text (GTK_EDITABLE (self->spn_new_entry), "");
+  gtk_label_set_text (GTK_LABEL (self->spn_save_error), "");
+  gtk_widget_set_visible (self->spn_save_error, FALSE);
+  gtk_widget_set_sensitive (self->spn_save_btn, FALSE);
 
   /* Raw LDAP attributes */
   populate_raw_attrs (self->raw_attrs_box,
@@ -503,6 +520,236 @@ on_delete_computer_btn_clicked (GtkButton *btn, gpointer user_data)
   show_computer_delete_confirm (SBV_COMPUTERS_PANEL (user_data));
 }
 
+/* ── SPN editor ─────────────────────────────────────────────────────────── */
+
+/* Returns TRUE if the selected computer's pwdLastSet is 0, meaning the
+ * account has no key material yet (created but never joined). SPNs added
+ * to such accounts are non-functional, so we lock the editor. */
+static gboolean
+selected_is_uninitialized (SbvComputersPanel *self)
+{
+  if (!self->selected_computer) return FALSE;
+  return sbv_computer_get_pwd_last_set (self->selected_computer) == 0;
+}
+
+/* Toggles SPN editor controls based on whether the selected account has
+ * been initialized. Also flips the warning label. */
+static void
+update_spn_editability (SbvComputersPanel *self)
+{
+  gboolean uninit = selected_is_uninitialized (self);
+  gtk_widget_set_visible (self->spn_warning_label, uninit);
+
+  gboolean editable = !uninit && self->selected_computer != NULL;
+  gtk_widget_set_sensitive (self->spn_new_entry, editable);
+  gtk_widget_set_sensitive (self->spn_add_btn,   editable);
+  /* Per-row remove buttons live in spn_list_box; mark each row sensitive
+   * to match. The save button is enabled separately when the working list
+   * actually differs from the loaded values. */
+  for (GtkWidget *row = gtk_widget_get_first_child (self->spn_list_box);
+       row != NULL;
+       row = gtk_widget_get_next_sibling (row))
+    gtk_widget_set_sensitive (row, editable);
+}
+
+/* Marks the save button sensitive whenever the working SPN list differs
+ * from the loaded computer's SPN values (set membership compare — order
+ * doesn't matter for AD). */
+static void
+update_spn_dirty (SbvComputersPanel *self)
+{
+  if (!self->selected_computer) {
+    gtk_widget_set_sensitive (self->spn_save_btn, FALSE);
+    return;
+  }
+
+  const char * const *current = sbv_computer_get_spn (self->selected_computer);
+  guint n_current = sbv_computer_get_spn_count (self->selected_computer);
+  guint n_working = self->working_spns ? self->working_spns->len : 0;
+
+  gboolean dirty = (n_current != n_working);
+  if (!dirty) {
+    /* Same length — check that every working entry is present in current. */
+    for (guint i = 0; i < n_working && !dirty; i++) {
+      const char *w = g_ptr_array_index (self->working_spns, i);
+      gboolean found = FALSE;
+      for (guint j = 0; j < n_current; j++) {
+        if (g_strcmp0 (w, current[j]) == 0) { found = TRUE; break; }
+      }
+      if (!found) dirty = TRUE;
+    }
+  }
+
+  gtk_widget_set_sensitive (self->spn_save_btn,
+                             dirty && !selected_is_uninitialized (self));
+}
+
+/* "Remove" button on an SPN row: drops that entry from the working list
+ * and rebuilds the rows. */
+static void
+on_spn_remove_clicked (GtkButton *btn, gpointer user_data)
+{
+  SbvComputersPanel *self  = SBV_COMPUTERS_PANEL (user_data);
+  const char        *value = g_object_get_data (G_OBJECT (btn), "spn-value");
+  if (!value || !self->working_spns) return;
+
+  for (guint i = 0; i < self->working_spns->len; i++) {
+    if (g_strcmp0 (g_ptr_array_index (self->working_spns, i), value) == 0) {
+      g_ptr_array_remove_index (self->working_spns, i);
+      break;
+    }
+  }
+  rebuild_spn_rows (self);
+  update_spn_dirty (self);
+}
+
+/* Build a single SPN row: monospace value on the left, flat trash button
+ * on the right. */
+static GtkWidget *
+make_spn_row (SbvComputersPanel *self, const char *value)
+{
+  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_margin_top    (row, 2);
+  gtk_widget_set_margin_bottom (row, 2);
+
+  GtkWidget *lbl = gtk_label_new (value);
+  gtk_label_set_xalign (GTK_LABEL (lbl), 0);
+  gtk_label_set_selectable (GTK_LABEL (lbl), TRUE);
+  gtk_label_set_ellipsize (GTK_LABEL (lbl), PANGO_ELLIPSIZE_END);
+  gtk_widget_add_css_class (lbl, "monospace");
+  gtk_widget_set_hexpand (lbl, TRUE);
+  gtk_box_append (GTK_BOX (row), lbl);
+
+  GtkWidget *btn = gtk_button_new_from_icon_name ("user-trash-symbolic");
+  gtk_widget_add_css_class (btn, "flat");
+  gtk_widget_set_tooltip_text (btn, "Remove SPN");
+  g_object_set_data_full (G_OBJECT (btn), "spn-value",
+                           g_strdup (value), g_free);
+  g_signal_connect (btn, "clicked", G_CALLBACK (on_spn_remove_clicked), self);
+  gtk_box_append (GTK_BOX (row), btn);
+
+  return row;
+}
+
+/* Rebuilds all SPN rows from working_spns. Called on selection change and
+ * after every add/remove. Keeps display sorted alphabetically. */
+static void
+rebuild_spn_rows (SbvComputersPanel *self)
+{
+  GtkWidget *child;
+  while ((child = gtk_widget_get_first_child (self->spn_list_box)) != NULL)
+    gtk_box_remove (GTK_BOX (self->spn_list_box), child);
+
+  guint n = self->working_spns ? self->working_spns->len : 0;
+  gtk_widget_set_visible (self->spn_empty_label, n == 0);
+  if (n == 0) return;
+
+  /* Sort a copy by case-insensitive collate for stable display. */
+  GPtrArray *sorted = g_ptr_array_new ();
+  for (guint i = 0; i < n; i++)
+    g_ptr_array_add (sorted, g_ptr_array_index (self->working_spns, i));
+  g_ptr_array_sort (sorted, (GCompareFunc) g_ascii_strcasecmp);
+
+  for (guint i = 0; i < sorted->len; i++) {
+    const char *spn = g_ptr_array_index (sorted, i);
+    gtk_box_append (GTK_BOX (self->spn_list_box), make_spn_row (self, spn));
+  }
+  g_ptr_array_free (sorted, TRUE);
+}
+
+/* "Add" button / Enter on the new-SPN entry: validates the input and
+ * appends to the working list. Validation is intentionally lenient — we
+ * just require a `service/host` shape and reject duplicates. */
+static void
+on_spn_add_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvComputersPanel *self  = SBV_COMPUTERS_PANEL (user_data);
+  const char        *typed = gtk_editable_get_text (GTK_EDITABLE (self->spn_new_entry));
+  if (!self->selected_computer || selected_is_uninitialized (self)) return;
+
+  gtk_widget_set_visible (self->spn_save_error, FALSE);
+
+  if (!typed || !*typed) return;
+
+  const char *slash = strchr (typed, '/');
+  if (!slash || slash == typed || !*(slash + 1)) {
+    gtk_label_set_text (GTK_LABEL (self->spn_save_error),
+                        "SPN must be of the form service/host (e.g. HOST/pc.example.com).");
+    gtk_widget_set_visible (self->spn_save_error, TRUE);
+    return;
+  }
+
+  if (!self->working_spns)
+    self->working_spns = g_ptr_array_new_with_free_func (g_free);
+
+  for (guint i = 0; i < self->working_spns->len; i++) {
+    if (g_ascii_strcasecmp (g_ptr_array_index (self->working_spns, i), typed) == 0) {
+      gtk_label_set_text (GTK_LABEL (self->spn_save_error),
+                          "That SPN is already in the list.");
+      gtk_widget_set_visible (self->spn_save_error, TRUE);
+      return;
+    }
+  }
+
+  g_ptr_array_add (self->working_spns, g_strdup (typed));
+  gtk_editable_set_text (GTK_EDITABLE (self->spn_new_entry), "");
+  rebuild_spn_rows (self);
+  update_spn_dirty (self);
+}
+
+/* Activate (Enter) on the new-SPN entry mirrors the Add button. */
+static void
+on_spn_entry_activate (GtkEntry *entry, gpointer user_data)
+{
+  (void) entry;
+  on_spn_add_clicked (NULL, user_data);
+}
+
+/* Async-completion: SPN write returned. On success we refresh the list so
+ * the model reflects what's now on the DC. */
+static void
+on_spn_save_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
+  SbvConnection     *conn = SBV_CONNECTION (source);
+  GError            *err  = NULL;
+
+  if (!sbv_computers_set_spn_finish (conn, result, &err)) {
+    gtk_label_set_text (GTK_LABEL (self->spn_save_error), err->message);
+    gtk_widget_set_visible (self->spn_save_error, TRUE);
+    g_error_free (err);
+    gtk_widget_set_sensitive (self->spn_save_btn, TRUE);
+    return;
+  }
+
+  sbv_computers_panel_load (self, conn);
+}
+
+/* "Save SPNs" button: builds a NULL-terminated GStrv from the working
+ * list and dispatches the LDAP modify. */
+static void
+on_spn_save_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
+  if (!self->conn || !self->selected_computer) return;
+  if (selected_is_uninitialized (self)) return;
+
+  guint n = self->working_spns ? self->working_spns->len : 0;
+  char **spns = g_new0 (char *, n + 1);
+  for (guint i = 0; i < n; i++)
+    spns[i] = g_strdup (g_ptr_array_index (self->working_spns, i));
+
+  gtk_widget_set_visible (self->spn_save_error, FALSE);
+  gtk_widget_set_sensitive (self->spn_save_btn, FALSE);
+
+  sbv_computers_set_spn_async (self->conn, self->selected_computer,
+                                (const char * const *) spns,
+                                NULL, on_spn_save_done, self);
+  g_strfreev (spns);
+}
+
 /* ── Load callback ──────────────────────────────────────────────────────── */
 
 static void
@@ -668,6 +915,7 @@ sbv_computers_panel_finalize (GObject *object)
   g_free (self->filter_text);
   g_free (self->pending_select_dn);
   g_clear_object (&self->selected_computer);
+  if (self->working_spns) g_ptr_array_unref (self->working_spns);
   G_OBJECT_CLASS (sbv_computers_panel_parent_class)->finalize (object);
 }
 
@@ -853,18 +1101,69 @@ sbv_computers_panel_init (SbvComputersPanel *self)
     gtk_box_append (GTK_BOX (save_box), self->save_error);
     gtk_box_append (GTK_BOX (form), save_box);
 
-    /* ── Service Principal Names (read-only) ── */
+    /* ── Service Principal Names (editable) ── */
     gtk_box_append (GTK_BOX (form),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append (GTK_BOX (form), make_section_label ("Service Principal Names"));
 
-    self->spn_label = gtk_label_new ("\xe2\x80\x94");
-    gtk_label_set_xalign (GTK_LABEL (self->spn_label), 0);
-    gtk_label_set_selectable (GTK_LABEL (self->spn_label), TRUE);
-    gtk_label_set_wrap (GTK_LABEL (self->spn_label), TRUE);
-    gtk_widget_add_css_class (self->spn_label, "monospace");
-    gtk_widget_set_margin_start (self->spn_label, 148);
-    gtk_box_append (GTK_BOX (form), self->spn_label);
+    /* Warning banner — shown only when pwdLastSet == 0. The directory
+     * will accept the modify, but the SPN is non-functional until the
+     * computer joins the domain and acquires key material, so we
+     * disable the editor outright. */
+    self->spn_warning_label = gtk_label_new (
+      "Computer must be initialized (joined domain) before SPNs can be registered.");
+    gtk_label_set_xalign (GTK_LABEL (self->spn_warning_label), 0);
+    gtk_label_set_wrap (GTK_LABEL (self->spn_warning_label), TRUE);
+    gtk_widget_add_css_class (self->spn_warning_label, "warning");
+    gtk_widget_set_margin_start (self->spn_warning_label, 148);
+    gtk_widget_set_visible (self->spn_warning_label, FALSE);
+    gtk_box_append (GTK_BOX (form), self->spn_warning_label);
+
+    GtkWidget *spn_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_margin_start (spn_box, 148);
+
+    self->spn_list_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_append (GTK_BOX (spn_box), self->spn_list_box);
+
+    self->spn_empty_label = gtk_label_new ("\xe2\x80\x94");
+    gtk_label_set_xalign (GTK_LABEL (self->spn_empty_label), 0);
+    gtk_widget_add_css_class (self->spn_empty_label, "dim-label");
+    gtk_box_append (GTK_BOX (spn_box), self->spn_empty_label);
+
+    GtkWidget *add_row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_top (add_row, 4);
+    self->spn_new_entry = gtk_entry_new ();
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->spn_new_entry),
+                                     "service/host.example.com");
+    gtk_widget_add_css_class (self->spn_new_entry, "monospace");
+    gtk_widget_set_hexpand (self->spn_new_entry, TRUE);
+    g_signal_connect (self->spn_new_entry, "activate",
+                      G_CALLBACK (on_spn_entry_activate), self);
+    gtk_box_append (GTK_BOX (add_row), self->spn_new_entry);
+
+    self->spn_add_btn = gtk_button_new_with_label ("Add");
+    g_signal_connect (self->spn_add_btn, "clicked",
+                      G_CALLBACK (on_spn_add_clicked), self);
+    gtk_box_append (GTK_BOX (add_row), self->spn_add_btn);
+    gtk_box_append (GTK_BOX (spn_box), add_row);
+
+    self->spn_save_btn = gtk_button_new_with_label ("Save SPNs");
+    gtk_widget_add_css_class (self->spn_save_btn, "suggested-action");
+    gtk_widget_set_halign (self->spn_save_btn, GTK_ALIGN_START);
+    gtk_widget_set_margin_top (self->spn_save_btn, 4);
+    gtk_widget_set_sensitive (self->spn_save_btn, FALSE);
+    g_signal_connect (self->spn_save_btn, "clicked",
+                      G_CALLBACK (on_spn_save_clicked), self);
+    gtk_box_append (GTK_BOX (spn_box), self->spn_save_btn);
+
+    self->spn_save_error = gtk_label_new ("");
+    gtk_label_set_xalign (GTK_LABEL (self->spn_save_error), 0);
+    gtk_label_set_wrap (GTK_LABEL (self->spn_save_error), TRUE);
+    gtk_widget_add_css_class (self->spn_save_error, "error");
+    gtk_widget_set_visible (self->spn_save_error, FALSE);
+    gtk_box_append (GTK_BOX (spn_box), self->spn_save_error);
+
+    gtk_box_append (GTK_BOX (form), spn_box);
 
     /* ── All LDAP Attributes ── */
     gtk_box_append (GTK_BOX (form),

@@ -359,6 +359,86 @@ sbv_computers_update_attrs_finish (SbvConnection *conn,
   return g_task_propagate_boolean (G_TASK (result), error);
 }
 
+/* ── Set SPNs ───────────────────────────────────────────────────────────── */
+
+typedef struct {
+  char  *dn;
+  char **spns;   /* NULL-terminated; may be NULL or empty for "delete all" */
+} SetSpnData;
+
+/* Frees the SetSpnData task payload. */
+static void
+set_spn_data_free (SetSpnData *d)
+{
+  g_free (d->dn);
+  g_strfreev (d->spns);
+  g_free (d);
+}
+
+/* Worker thread: replaces the full servicePrincipalName attribute. An
+ * empty / NULL value list collapses to LDAP_MOD_REPLACE with no values,
+ * which deletes the attribute. */
+static void
+set_spn_thread (GTask *task, gpointer source, gpointer task_data,
+                GCancellable *cancellable)
+{
+  SbvConnection *conn = SBV_CONNECTION (source);
+  SetSpnData    *d    = task_data;
+  (void) cancellable;
+
+  LDAP *ld = sbv_connection_acquire_ldap (conn);
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  guint count = d->spns ? g_strv_length (d->spns) : 0;
+  LDAPMod  spn_mod = { LDAP_MOD_REPLACE, "servicePrincipalName",
+                       { .modv_strvals = (count > 0) ? d->spns : NULL } };
+  LDAPMod *mods[]  = { &spn_mod, NULL };
+
+  int rc = ldap_modify_ext_s (ld, d->dn, mods, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "SPN update failed: %s", ldap_err2string (rc));
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+/* Public entry — see header. Snapshots the SPN list and dispatches to a
+ * worker thread. */
+void
+sbv_computers_set_spn_async (SbvConnection       *conn,
+                              SbvComputer         *computer,
+                              const char * const  *spns,
+                              GCancellable        *cancellable,
+                              GAsyncReadyCallback  callback,
+                              gpointer             user_data)
+{
+  SetSpnData *d = g_new0 (SetSpnData, 1);
+  d->dn   = g_strdup (sbv_computer_get_dn (computer));
+  d->spns = spns ? g_strdupv ((char **) spns) : NULL;
+
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+  g_task_set_task_data (task, d, (GDestroyNotify) set_spn_data_free);
+  g_task_run_in_thread (task, set_spn_thread);
+  g_object_unref (task);
+}
+
+/* Reports success/failure of a previously-scheduled SPN update. */
+gboolean
+sbv_computers_set_spn_finish (SbvConnection *conn,
+                               GAsyncResult  *result,
+                               GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_boolean (G_TASK (result), error);
+}
+
 /* ── Create computer ────────────────────────────────────────────────────── */
 
 typedef struct {

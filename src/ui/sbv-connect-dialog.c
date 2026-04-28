@@ -200,15 +200,6 @@ on_discover_done (GObject *source, GAsyncResult *result, gpointer user_data)
     g_object_unref (item);
   }
 
-  /* Auto-fill base DN from the domain field if not already set */
-  const char *domain = gtk_editable_get_text (GTK_EDITABLE (d->domain_entry));
-  const char *existing_base = gtk_editable_get_text (GTK_EDITABLE (d->base_dn_entry));
-  if (domain && *domain && (!existing_base || !*existing_base)) {
-    char *base = domain_to_base_dn (domain);
-    gtk_editable_set_text (GTK_EDITABLE (d->base_dn_entry), base);
-    g_free (base);
-  }
-
   /* If exactly one DC was found, fill host/port directly */
   if (n == 1) {
     GtkListBoxRow *only = gtk_list_box_get_row_at_index (GTK_LIST_BOX (d->dc_list), 0);
@@ -253,6 +244,20 @@ on_discover_clicked (GtkButton *btn, gpointer user_data)
 
   gtk_widget_set_visible (d->error_label, FALSE);
   gtk_widget_set_sensitive (d->discover_btn, FALSE);
+
+  /* Suggest a base DN from the domain immediately. The base DN derivation
+   * only depends on the typed domain, not on whether SRV discovery succeeds
+   * — so do it here rather than in the completion callback, which is
+   * skipped on DNS failure. Don't clobber a base DN the user already
+   * typed. */
+  const char *existing_base = gtk_editable_get_text (GTK_EDITABLE (d->base_dn_entry));
+  if (!existing_base || !*existing_base) {
+    char *base = domain_to_base_dn (domain);
+    if (base) {
+      gtk_editable_set_text (GTK_EDITABLE (d->base_dn_entry), base);
+      g_free (base);
+    }
+  }
 
   g_clear_object (&d->discover_cancel);
   d->discover_cancel = g_cancellable_new ();

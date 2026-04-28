@@ -71,4 +71,26 @@ gboolean sbv_computers_update_attrs_finish (SbvConnection *conn,
                                              GAsyncResult  *result,
                                              GError       **error);
 
+/* Replace the full servicePrincipalName multi-valued attribute on a
+ * computer account.
+ *
+ * `spns` is a NULL-terminated array of strings (a GStrv); pass an empty
+ * or NULL array to remove all SPNs (LDAP_MOD_REPLACE with no values
+ * deletes the attribute). Caller retains ownership of `spns`; the call
+ * copies what it needs.
+ *
+ * Note: SPNs are only functional when the backing computer account has
+ * key material (i.e. has been joined). Callers should refuse to invoke
+ * this on accounts where pwdLastSet == 0 — the request will succeed at
+ * the directory level but the SPN will never be usable for Kerberos. */
+void     sbv_computers_set_spn_async  (SbvConnection       *conn,
+                                        SbvComputer         *computer,
+                                        const char * const  *spns,
+                                        GCancellable        *cancellable,
+                                        GAsyncReadyCallback  callback,
+                                        gpointer             user_data);
+gboolean sbv_computers_set_spn_finish (SbvConnection *conn,
+                                        GAsyncResult  *result,
+                                        GError       **error);
+
 G_END_DECLS

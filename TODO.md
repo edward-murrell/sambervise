@@ -154,20 +154,20 @@ can pick it up later without re-litigating decisions.
 
 ## Kerberos principals
 
-### 13. Computer SPN management  *(open)*
-- Backend: `sbv_computers_set_spn_async/finish` to modify the
-  `servicePrincipalName` LDAP attribute (multi-valued) via add/delete
-  operations.
-- UI: Add/remove SPN controls in the computer detail panel (input field +
-  add button, list with remove buttons per SPN).
-- **Safety guard**: Check `pwdLastSet == 0` (uninitialized account) and
-  disable SPN controls with an explanation: *"Computer must be
-  initialized (joined domain) before SPNs can be registered."*
-  This prevents users from trying to add SPNs to accounts that have no
-  key material and will never work.
-- Rationale: SPNs are only functional when the backing account has key
-  material; a computer account created via Sambervise but not yet joined
-  has `pwdLastSet=0` and is not usable for Kerberos principals.
+### 13. Computer SPN management  *(DONE — 0.1.11)*
+- Backend: `sbv_computers_set_spn_async/finish` issues a single
+  `LDAP_MOD_REPLACE` against `servicePrincipalName`. Empty list collapses
+  to an attribute delete.
+- UI: SPN section in the computer detail panel — list of current SPNs
+  with per-row trash buttons, an entry + Add button (Enter activates) for
+  new SPNs, and a "Save SPNs" button gated on the working list differing
+  from the loaded values. Edits are staged locally; nothing hits the DC
+  until Save.
+- Safety guard: when `pwdLastSet == 0` the entry, Add, Save, and per-row
+  remove buttons are all disabled and a warning banner explains that the
+  account must be initialised before SPNs can be registered.
+- Lenient validation only — `service/host` shape and de-duplication; the
+  DC remains the source of truth for SPN syntax.
 
 ## Search and filtering
 

@@ -5,6 +5,28 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2026-04-28
+
+### Added
+- Computer detail panel: editable Service Principal Names section.
+  Existing SPNs are listed with per-row remove buttons; a new SPN can
+  be added via an entry + Add button (or Enter). Changes are staged
+  locally and applied with "Save SPNs", which issues a single LDAP
+  `MOD_REPLACE` against `servicePrincipalName`.
+- Safety guard: when the selected computer has `pwdLastSet == 0`
+  (created but never joined the domain), the SPN editor is disabled
+  and a warning explains that the account must be initialized before
+  SPNs can be registered — the directory accepts the modify, but the
+  resulting SPN is non-functional without key material.
+
+### Fixed
+- Connect dialog: the "Discover" button now suggests a Base DN derived from
+  the entered domain even when SRV discovery fails (no `_ldap._tcp.dc._msdcs`
+  records, DNS error, etc.). Previously the suggestion was only filled on
+  the success path, so users with a valid domain but no AD SRV records got
+  an error and an empty Base DN field. The Base DN is filled when Discover
+  is clicked rather than when it completes.
+
 ## [0.1.10] - 2026-04-26
 
 ### Added
