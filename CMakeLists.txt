@@ -28,7 +28,7 @@ add_subdirectory(tests)
 set(CPACK_GENERATOR                       "DEB")
 set(CPACK_PACKAGE_NAME                    "sambervise")
 set(CPACK_PACKAGE_VERSION                 "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_CONTACT                 "ekm <maintainer@ekm.org>")
+set(CPACK_PACKAGE_CONTACT                 "Edward Murrell <edward@murrell.co.nz>")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "GTK 4 GUI for administering Samba 4 Active Directory Domain Controllers")
 set(CPACK_DEBIAN_FILE_NAME                "DEB-DEFAULT")
