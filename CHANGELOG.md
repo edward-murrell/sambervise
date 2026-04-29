@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bind DN for simple auth, transport flags, POSIX UID/GID ranges) so
   the static profile state is visible without scanning every form field.
 
+### Fixed
+- Users panel search: typing into the search box used to hide every row
+  for any account where `displayName` was unset (a common case in AD).
+  The filter array was NULL-terminated and iterated via `for (...;
+  fields[i]; ...)`, so a NULL `displayName` at index 0 short-circuited
+  the loop before any field was compared. The filter now iterates by
+  count and skips NULL fields explicitly.
+
 ## [0.1.11] - 2026-04-28
 
 ### Added

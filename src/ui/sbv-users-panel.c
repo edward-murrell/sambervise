@@ -185,15 +185,17 @@ filter_func (GtkListBoxRow *row, gpointer user_data)
   SbvUser *user = g_object_get_data (G_OBJECT (row), "sbv-user");
   if (!user) return TRUE;
 
+  /* Don't NULL-terminate this array: any NULL field (commonly displayName,
+   * which AD leaves unset for plenty of accounts) would short-circuit the
+   * loop and hide every row. Iterate by count and skip NULLs per-element. */
   const char *fields[] = {
     sbv_user_get_display_name (user),
     sbv_user_get_cn (user),
     sbv_user_get_sam (user),
     sbv_user_get_email (user),
-    NULL
   };
 
-  for (int i = 0; fields[i]; i++) {
+  for (size_t i = 0; i < G_N_ELEMENTS (fields); i++) {
     if (!fields[i]) continue;
     char *lower = g_utf8_strdown (fields[i], -1);
     gboolean match = strstr (lower, self->filter_text) != NULL;
