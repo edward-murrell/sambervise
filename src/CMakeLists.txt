@@ -40,6 +40,7 @@ add_executable(sambervise
     backend/sbv-idmap-hints.c
     backend/sbv-collisions.c
     backend/sbv-ldap-browse.c
+    backend/sbv-probe.c
     ui/sbv-window.c
     ui/sbv-connect-dialog.c
     ui/sbv-password-dialog.c

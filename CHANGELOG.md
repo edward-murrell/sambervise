@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   MOD_ADD / MOD_REPLACE / MOD_DELETE operations. Multi-value attributes
   use `; ` as the value separator. After save the entry is re-read so
   the editor reflects DC-side normalisation.
+- Connect / Edit Connection dialog: "Probe" button next to host/port
+  performs an anonymous LDAP RootDSE read (using the dialog's TLS /
+  LDAPS / skip-cert toggles) and surfaces the DC's hostname, default
+  naming context, functionality levels, supported LDAP versions and
+  supported SASL mechanisms inline. Useful for sanity-checking
+  reachability and TLS settings before committing the profile.
+- Edit Connection dialog: "About this connection" header button opens a
+  popover summarising the saved profile (host:port, base DN, auth mode,
+  bind DN for simple auth, transport flags, POSIX UID/GID ranges) so
+  the static profile state is visible without scanning every form field.
 
 ## [0.1.11] - 2026-04-28
 

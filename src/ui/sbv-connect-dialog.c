@@ -1,6 +1,7 @@
 #include "sbv-connect-dialog.h"
 #include "../backend/sbv-dns.h"
 #include "../backend/sbv-idmap-hints.h"
+#include "../backend/sbv-probe.h"
 
 #include <adwaita.h>
 #include <string.h>
@@ -32,6 +33,11 @@ typedef struct {
   GtkWidget         *error_label;
   GtkWidget         *connect_btn;
   GtkWidget         *cancel_btn;
+  GtkWidget         *probe_btn;
+  GtkWidget         *probe_frame;
+  GtkWidget         *probe_box;
+  GtkWidget         *about_btn;
+  GCancellable      *probe_cancel;
 
   GListStore        *profiles_store; /* unowned */
   SbvConnectCallback callback;
@@ -51,8 +57,213 @@ dialog_data_free (DialogData *d)
 {
   g_clear_object (&d->pending_conn);
   g_clear_object (&d->discover_cancel);
+  g_clear_object (&d->probe_cancel);
   g_free (d->original_name);
   g_free (d);
+}
+
+/* ── Probe DC ──────────────────────────────────────────────────────────── */
+
+/* Append a "<label>: <value>" row to the probe results box. */
+static void
+probe_append_row (DialogData *d, const char *label, const char *value)
+{
+  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget *l   = gtk_label_new (label);
+  gtk_label_set_xalign (GTK_LABEL (l), 1.0);
+  gtk_widget_set_size_request (l, 180, -1);
+  gtk_widget_add_css_class (l, "dim-label");
+  gtk_box_append (GTK_BOX (row), l);
+  GtkWidget *v = gtk_label_new (value);
+  gtk_label_set_xalign (GTK_LABEL (v), 0.0);
+  gtk_label_set_selectable (GTK_LABEL (v), TRUE);
+  gtk_label_set_wrap (GTK_LABEL (v), TRUE);
+  gtk_widget_add_css_class (v, "monospace");
+  gtk_widget_set_hexpand (v, TRUE);
+  gtk_box_append (GTK_BOX (row), v);
+  gtk_box_append (GTK_BOX (d->probe_box), row);
+}
+
+/* Render the RootDSE attrs into the probe results frame, picking the
+ * common ones an admin actually wants to see at a glance. */
+static void
+probe_render_attrs (DialogData *d, GHashTable *attrs)
+{
+  GtkWidget *child;
+  while ((child = gtk_widget_get_first_child (d->probe_box)) != NULL)
+    gtk_box_remove (GTK_BOX (d->probe_box), child);
+
+  static const struct { const char *attr; const char *label; } pairs[] = {
+    { "dnsHostName",                   "DC Hostname"    },
+    { "defaultNamingContext",          "Default NC"     },
+    { "domainFunctionality",           "Domain Level"   },
+    { "forestFunctionality",           "Forest Level"   },
+    { "domainControllerFunctionality", "DC Level"       },
+    { "supportedLDAPVersion",          "LDAP Version"   },
+    { "supportedSASLMechanisms",       "SASL Mechs"     },
+    { NULL, NULL }
+  };
+
+  for (int i = 0; pairs[i].attr; i++) {
+    char **vals = g_hash_table_lookup (attrs, pairs[i].attr);
+    if (!vals || !vals[0]) continue;
+    char *joined = g_strjoinv (", ", vals);
+    probe_append_row (d, pairs[i].label, joined);
+    g_free (joined);
+  }
+  if (!gtk_widget_get_first_child (d->probe_box))
+    probe_append_row (d, "Result", "Reachable, but RootDSE is empty.");
+}
+
+/* Probe completion handler. */
+static void
+on_probe_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  (void) source;
+  DialogData *d = user_data;
+  GError     *err = NULL;
+
+  gtk_widget_set_sensitive (d->probe_btn, TRUE);
+  gtk_button_set_label (GTK_BUTTON (d->probe_btn), "Probe");
+
+  GHashTable *attrs = sbv_probe_dc_finish (result, &err);
+  if (!attrs) {
+    GtkWidget *child;
+    while ((child = gtk_widget_get_first_child (d->probe_box)) != NULL)
+      gtk_box_remove (GTK_BOX (d->probe_box), child);
+    probe_append_row (d, "Probe failed",
+                       err ? err->message : "(no detail)");
+    if (err) g_error_free (err);
+    gtk_widget_set_visible (d->probe_frame, TRUE);
+    return;
+  }
+
+  probe_render_attrs (d, attrs);
+  gtk_widget_set_visible (d->probe_frame, TRUE);
+  g_hash_table_unref (attrs);
+}
+
+/* Probe button click: fires an anonymous RootDSE read against host:port
+ * using the TLS settings from the dialog. No bind, no profile mutation. */
+static void
+on_probe_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  DialogData *d    = user_data;
+  const char *host = gtk_editable_get_text (GTK_EDITABLE (d->host_entry));
+  if (!host || !*host) {
+    gtk_label_set_text (GTK_LABEL (d->error_label), "Enter a host first.");
+    gtk_widget_set_visible (d->error_label, TRUE);
+    return;
+  }
+
+  int      port      = (int) gtk_spin_button_get_value (GTK_SPIN_BUTTON (d->port_spin));
+  gboolean ldaps     = gtk_check_button_get_active (GTK_CHECK_BUTTON (d->use_ldaps_check));
+  gboolean tls       = gtk_check_button_get_active (GTK_CHECK_BUTTON (d->use_tls_check));
+  gboolean skip_cert = gtk_check_button_get_active (GTK_CHECK_BUTTON (d->skip_cert_check));
+
+  gtk_widget_set_visible (d->error_label, FALSE);
+  gtk_widget_set_sensitive (d->probe_btn, FALSE);
+  gtk_button_set_label (GTK_BUTTON (d->probe_btn), "Probing…");
+
+  g_clear_object (&d->probe_cancel);
+  d->probe_cancel = g_cancellable_new ();
+
+  sbv_probe_dc_async (host, port, ldaps, tls, skip_cert,
+                       d->probe_cancel, on_probe_done, d);
+}
+
+/* ── About-this-connection popover (static profile data) ───────────────── */
+
+/* Append one "<label>: <value>" line to `box`. Skips empty values so the
+ * popover doesn't list optional fields the profile didn't set. */
+static void
+about_append_row (GtkWidget *box, const char *label, const char *value)
+{
+  if (!value || !*value) return;
+  GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget *l   = gtk_label_new (label);
+  gtk_label_set_xalign (GTK_LABEL (l), 1.0);
+  gtk_widget_set_size_request (l, 110, -1);
+  gtk_widget_add_css_class (l, "dim-label");
+  gtk_box_append (GTK_BOX (row), l);
+  GtkWidget *v = gtk_label_new (value);
+  gtk_label_set_xalign (GTK_LABEL (v), 0.0);
+  gtk_label_set_selectable (GTK_LABEL (v), TRUE);
+  gtk_widget_add_css_class (v, "monospace");
+  gtk_box_append (GTK_BOX (row), v);
+  gtk_box_append (GTK_BOX (box), row);
+}
+
+/* Builds and attaches the popover content from `profile`. Called once
+ * during edit-only dialog construction. */
+static void
+build_about_popover (GtkMenuButton *btn, SbvProfile *profile)
+{
+  GtkWidget *pop = gtk_popover_new ();
+
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+  gtk_widget_set_margin_top    (box, 12);
+  gtk_widget_set_margin_bottom (box, 12);
+  gtk_widget_set_margin_start  (box, 12);
+  gtk_widget_set_margin_end    (box, 12);
+
+  GtkWidget *title = gtk_label_new (NULL);
+  char *markup = g_markup_printf_escaped ("<b>%s</b>",
+    sbv_profile_get_name (profile) ?: "(unnamed)");
+  gtk_label_set_markup (GTK_LABEL (title), markup);
+  g_free (markup);
+  gtk_label_set_xalign (GTK_LABEL (title), 0);
+  gtk_box_append (GTK_BOX (box), title);
+
+  char *hostport = g_strdup_printf ("%s:%d",
+    sbv_profile_get_host (profile) ?: "?",
+    sbv_profile_get_port (profile));
+  about_append_row (box, "Host", hostport);
+  g_free (hostport);
+
+  about_append_row (box, "Base DN", sbv_profile_get_base_dn (profile));
+  about_append_row (box, "Auth",
+    sbv_profile_get_auth_type (profile) == SBV_AUTH_KERBEROS
+      ? "Kerberos (GSSAPI)" : "Simple bind");
+  if (sbv_profile_get_auth_type (profile) == SBV_AUTH_SIMPLE)
+    about_append_row (box, "Bind DN", sbv_profile_get_bind_dn (profile));
+
+  GString *tls = g_string_new (NULL);
+  if (sbv_profile_get_use_ldaps (profile)) g_string_append (tls, "LDAPS");
+  if (sbv_profile_get_use_tls   (profile)) {
+    if (tls->len) g_string_append (tls, ", ");
+    g_string_append (tls, "STARTTLS");
+  }
+  if (sbv_profile_get_skip_cert (profile)) {
+    if (tls->len) g_string_append (tls, ", ");
+    g_string_append (tls, "skip cert verify");
+  }
+  if (!tls->len) g_string_append (tls, "Cleartext");
+  about_append_row (box, "Transport", tls->str);
+  g_string_free (tls, TRUE);
+
+  gint64 uid_min = sbv_profile_get_uid_min (profile);
+  gint64 uid_max = sbv_profile_get_uid_max (profile);
+  gint64 gid_min = sbv_profile_get_gid_min (profile);
+  gint64 gid_max = sbv_profile_get_gid_max (profile);
+  if (uid_min > 0 || uid_max > 0) {
+    char *r = g_strdup_printf ("%" G_GINT64_FORMAT "–%" G_GINT64_FORMAT,
+                                uid_min > 0 ? uid_min : 0,
+                                uid_max > 0 ? uid_max : 0);
+    about_append_row (box, "UID range", r);
+    g_free (r);
+  }
+  if (gid_min > 0 || gid_max > 0) {
+    char *r = g_strdup_printf ("%" G_GINT64_FORMAT "–%" G_GINT64_FORMAT,
+                                gid_min > 0 ? gid_min : 0,
+                                gid_max > 0 ? gid_max : 0);
+    about_append_row (box, "GID range", r);
+    g_free (r);
+  }
+
+  gtk_popover_set_child (GTK_POPOVER (pop), box);
+  gtk_menu_button_set_popover (btn, pop);
 }
 
 /* ── Domain → suggested Base DN ────────────────────────────────────────── */
@@ -525,6 +736,10 @@ build_dialog (GtkWindow         *parent,
   d->error_label     = GTK_WIDGET (gtk_builder_get_object (builder, "error_label"));
   d->connect_btn     = GTK_WIDGET (gtk_builder_get_object (builder, "connect_btn"));
   d->cancel_btn      = GTK_WIDGET (gtk_builder_get_object (builder, "cancel_btn"));
+  d->probe_btn       = GTK_WIDGET (gtk_builder_get_object (builder, "probe_btn"));
+  d->probe_frame     = GTK_WIDGET (gtk_builder_get_object (builder, "probe_frame"));
+  d->probe_box       = GTK_WIDGET (gtk_builder_get_object (builder, "probe_box"));
+  d->about_btn       = GTK_WIDGET (gtk_builder_get_object (builder, "about_btn"));
   d->profiles_store  = profiles_store;
   d->callback        = callback;
   d->callback_data   = user_data;
@@ -536,6 +751,13 @@ build_dialog (GtkWindow         *parent,
   if (edit_only) {
     gtk_window_set_title (GTK_WINDOW (d->dialog), "Edit Connection");
     gtk_button_set_label (GTK_BUTTON (d->connect_btn), "Save");
+  }
+
+  /* About-this-connection popover: only meaningful when there's a saved
+   * profile to summarise, so it's hidden in the new-connection flow. */
+  if (edit_profile) {
+    build_about_popover (GTK_MENU_BUTTON (d->about_btn), edit_profile);
+    gtk_widget_set_visible (d->about_btn, TRUE);
   }
 
   /* Pre-populate if editing a profile */
@@ -607,6 +829,7 @@ build_dialog (GtkWindow         *parent,
   g_signal_connect (d->simple_radio,    "toggled", G_CALLBACK (on_auth_toggled),    d);
   g_signal_connect (d->use_ldaps_check, "toggled", G_CALLBACK (on_ldaps_toggled),   d);
   g_signal_connect (d->discover_btn,    "clicked", G_CALLBACK (on_discover_clicked), d);
+  g_signal_connect (d->probe_btn,       "clicked", G_CALLBACK (on_probe_clicked),    d);
   g_signal_connect (d->dc_list,  "row-activated",  G_CALLBACK (on_dc_row_activated), d);
   g_signal_connect (d->connect_btn,     "clicked",
                     edit_only ? G_CALLBACK (on_save_clicked)

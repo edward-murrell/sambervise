@@ -24,6 +24,14 @@
                 </style>
               </object>
             </child>
+            <child type="end">
+              <object class="GtkMenuButton" id="about_btn">
+                <property name="icon-name">help-about-symbolic</property>
+                <property name="tooltip-text">About this connection</property>
+                <property name="visible">false</property>
+                <style><class name="flat"/></style>
+              </object>
+            </child>
           </object>
         </child>
         <child>
@@ -135,6 +143,29 @@
                       </object>
                     </property>
                     <property name="numeric">true</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkButton" id="probe_btn">
+                    <property name="label">Probe</property>
+                    <property name="tooltip-text">Anonymous LDAP probe of host:port — reads RootDSE without binding</property>
+                  </object>
+                </child>
+              </object>
+            </child>
+
+            <!-- Probe result (hidden until probe runs) -->
+            <child>
+              <object class="GtkFrame" id="probe_frame">
+                <property name="visible">false</property>
+                <child>
+                  <object class="GtkBox" id="probe_box">
+                    <property name="orientation">vertical</property>
+                    <property name="spacing">2</property>
+                    <property name="margin-top">6</property>
+                    <property name="margin-bottom">6</property>
+                    <property name="margin-start">10</property>
+                    <property name="margin-end">10</property>
                   </object>
                 </child>
               </object>
