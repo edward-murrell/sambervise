@@ -5,6 +5,26 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2026-04-30
+
+### Added
+- Raw LDAP browser: arbitrary filter search box above the tree. Type an
+  LDAP filter (e.g. `(sAMAccountName=alice)`) and press Enter to run a
+  subtree search rooted at the connection's base DN; matching entries
+  appear as a flat list with their full DN, and selecting one opens it
+  in the editor pane the same way as the tree view. Esc clears the
+  filter and returns to the tree. Results are capped at 500 entries
+  with a "truncated" hint so very broad filters don't lock up the UI.
+- Raw LDAP browser: the attribute pane is now editable. Each existing
+  attribute renders as a name + value entry with a trash button that
+  marks the attribute for deletion (struck through; click again to
+  undo). An "Add attribute" button appends a fresh row for adding new
+  attributes, and "Save Changes" diffs the editor state against the
+  loaded entry and emits a single LDAP modify request batching all
+  MOD_ADD / MOD_REPLACE / MOD_DELETE operations. Multi-value attributes
+  use `; ` as the value separator. After save the entry is re-read so
+  the editor reflects DC-side normalisation.
+
 ## [0.1.11] - 2026-04-28
 
 ### Added
