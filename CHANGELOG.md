@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Sidebar connection rows: the dot indicating active vs. inactive
+  connection now renders correctly on icon themes that don't inherit
+  from Adwaita (e.g. Mint-X). `emblem-ok-symbolic` and
+  `media-record-symbolic` are now bundled in the GResource icon set.
+
 ### Changed
 - Application identity renamed from `org.ekm.sambervise` to
   `au.com.codefoundation.Sambervise`. This affects the GTK

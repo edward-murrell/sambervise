@@ -239,11 +239,15 @@ can pick it up later without re-litigating decisions.
   first run after upgrade (documented in CHANGELOG). Connection
   profiles in `~/.config/sambervise/connections.ini` are unaffected.
 
-### Connection icon broken  *(open)*
-- The icon shown for a connection (sidebar profile row, and/or anywhere
-  else a per-connection icon is used) renders broken / missing. Track
-  down whether the icon name is wrong, the GResource path is stale, or
-  the icon file isn't being bundled into the gresource.
+### ~~Connection icon broken~~ *(DONE)*
+- Root cause: `emblem-ok-symbolic` (active) and `media-record-symbolic`
+  (inactive) are referenced by `make_profile_row()` in `sbv-window.c`
+  but weren't bundled in the GResource. On icon themes that don't
+  inherit from Adwaita (e.g. Mint-X) they resolved to the broken-image
+  fallback. Fix: bundle both SVGs (copied from Adwaita) under
+  `data/icons/scalable/actions/` and add them to
+  `sambervise.gresource.xml`. The existing
+  `gtk_icon_theme_add_resource_path` call in `sbv-app.c` picks them up.
 
 ## Safety warnings
 
