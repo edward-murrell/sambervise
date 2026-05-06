@@ -229,6 +229,44 @@ can pick it up later without re-litigating decisions.
   Only visible while connected. Populated from
   `sbv_idmap_hints_query_async` once per connect.
 
+## Bugs
+
+### ~~Bogus `ekm` / `org.ekm` identity~~ *(DONE)*
+- Renamed to `au.com.codefoundation.Sambervise` across gschema
+  (id + path + filename), desktop file, gresource prefix, GtkBuilder
+  resource paths, icon resource path, and About-dialog
+  maintainer/copyright. No migration shim — GSettings prefs reset on
+  first run after upgrade (documented in CHANGELOG). Connection
+  profiles in `~/.config/sambervise/connections.ini` are unaffected.
+
+### Connection icon broken  *(open)*
+- The icon shown for a connection (sidebar profile row, and/or anywhere
+  else a per-connection icon is used) renders broken / missing. Track
+  down whether the icon name is wrong, the GResource path is stale, or
+  the icon file isn't being bundled into the gresource.
+
+## Safety warnings
+
+### Warn when assigning a gidNumber to Domain Admins  *(open)*
+- Context: in Samba AD, Domain Admins is mapped as `ID_TYPE_BOTH` by
+  idmap.ldb so it works as both a group and a user-like principal. That
+  dual mapping is what lets Domain Admins *own* files in Sysvol — Unix
+  groups can't own files, so the user-side of the mapping is required.
+- Setting `gidNumber` on Domain Admins (or other built-in groups that
+  rely on `ID_TYPE_BOTH`) collapses it to a plain group. File ownership
+  in Sysvol breaks, share permissions on member servers can become
+  invalid, and DC operations get compromised. The recommended pattern
+  is to create a separate "Unix Admins" group with its own `gidNumber`
+  and nest it inside Administrators / Domain Admins, or to use the
+  `rid` idmap backend so no manual `gidNumber` is needed.
+- Action: in the groups panel, when a user is about to save a
+  `gidNumber` on Domain Admins (and ideally other built-in
+  `ID_TYPE_BOTH` groups — Schema Admins, Enterprise Admins, etc.),
+  show an explicit warning dialog explaining the breakage and the
+  recommended alternative. Detect by SID suffix (Domain Admins =
+  `S-1-5-21-…-512`) rather than name, since names are localised.
+  Don't hard-block — warn loudly and require confirm.
+
 ## Open questions / deferred
 
 - ~~About page (already in `todo`)~~ *(DONE — 0.1.9: hamburger menu in

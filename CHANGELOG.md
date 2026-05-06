@@ -5,6 +5,18 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Application identity renamed from `org.ekm.sambervise` to
+  `au.com.codefoundation.Sambervise`. This affects the GTK
+  application id, GSettings schema id and path, GResource prefix,
+  desktop file name, and About-dialog maintainer/copyright strings.
+  **One-time migration:** GSettings preferences (last host, port,
+  base DN, TLS toggles) reset to defaults on first run after upgrade,
+  because their dconf path changed. Stored connection profiles in
+  `~/.config/sambervise/connections.ini` are unaffected.
+
 ## [0.1.12] - 2026-04-30
 
 ### Added

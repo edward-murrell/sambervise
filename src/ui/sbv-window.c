@@ -438,7 +438,7 @@ sbv_window_class_init (SbvWindowClass *klass)
 
   GtkWidgetClass *wc = GTK_WIDGET_CLASS (klass);
   gtk_widget_class_set_template_from_resource (wc,
-    "/org/ekm/sambervise/ui/window.ui");
+    "/au/com/codefoundation/Sambervise/ui/window.ui");
 
   gtk_widget_class_bind_template_child (wc, SbvWindow, toast_overlay);
   gtk_widget_class_bind_template_child (wc, SbvWindow, content_stack);

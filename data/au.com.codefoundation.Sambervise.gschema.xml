@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="org.ekm.sambervise" path="/org/ekm/sambervise/">
+  <schema id="au.com.codefoundation.Sambervise" path="/au/com/codefoundation/Sambervise/">
     <key name="last-host" type="s">
       <default>''</default>
       <summary>Last used DC hostname</summary>

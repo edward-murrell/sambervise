@@ -20,7 +20,7 @@ on_about_action (GSimpleAction *action, GVariant *param, gpointer user_data)
   GApplication *app = G_APPLICATION (user_data);
   GtkWindow    *win = gtk_application_get_active_window (GTK_APPLICATION (app));
 
-  const char *developers[] = { "ekm", NULL };
+  const char *developers[] = { "Edward Murrell", NULL };
 
   GtkWidget *about = adw_about_window_new ();
   g_object_set (about,
@@ -29,7 +29,7 @@ on_about_action (GSimpleAction *action, GVariant *param, gpointer user_data)
                 "application-name",   "Sambervise",
                 "application-icon",   "network-server",
                 "version",            PACKAGE_VERSION,
-                "developer-name",     "ekm",
+                "developer-name",     "Edward Murrell",
                 "developers",         developers,
                 "comments",
                   "Linux GUI for remotely administering Samba 4 "
@@ -37,7 +37,7 @@ on_about_action (GSimpleAction *action, GVariant *param, gpointer user_data)
                 "website",            "https://github.com/edward-murrell/sambervise",
                 "issue-url",          "https://github.com/edward-murrell/sambervise/issues",
                 "license-type",       GTK_LICENSE_GPL_3_0,
-                "copyright",          "© 2026 ekm",
+                "copyright",          "© 2026 Edward Murrell",
                 NULL);
 
   gtk_window_present (GTK_WINDOW (about));
@@ -75,7 +75,7 @@ sbv_app_startup (GApplication *app)
    * user's icon theme (e.g. Mint-X) doesn't inherit from Adwaita and is
    * missing names like document-edit-symbolic / view-list-bullet-symbolic. */
   gtk_icon_theme_add_resource_path (gtk_icon_theme_get_for_display (gdk_display_get_default ()),
-                                     "/org/ekm/sambervise/icons");
+                                     "/au/com/codefoundation/Sambervise/icons");
 
   SbvApp *self = SBV_APP (app);
   GError *err  = NULL;
@@ -111,7 +111,7 @@ SbvApp *
 sbv_app_new (void)
 {
   return g_object_new (SBV_TYPE_APP,
-                        "application-id", "org.ekm.sambervise",
+                        "application-id", "au.com.codefoundation.Sambervise",
                         "flags", G_APPLICATION_DEFAULT_FLAGS,
                         NULL);
 }

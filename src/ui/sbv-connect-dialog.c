@@ -707,7 +707,7 @@ build_dialog (GtkWindow         *parent,
               gpointer           user_data)
 {
   GtkBuilder *builder = gtk_builder_new_from_resource (
-    "/org/ekm/sambervise/ui/connect-dialog.ui");
+    "/au/com/codefoundation/Sambervise/ui/connect-dialog.ui");
 
   DialogData *d = g_new0 (DialogData, 1);
   d->dialog          = GTK_WIDGET (gtk_builder_get_object (builder, "dialog"));

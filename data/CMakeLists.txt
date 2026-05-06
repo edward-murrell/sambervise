@@ -6,20 +6,20 @@ file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/data)
 
 add_custom_target(compile-schemas ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_CURRENT_SOURCE_DIR}/org.ekm.sambervise.gschema.xml
+            ${CMAKE_CURRENT_SOURCE_DIR}/au.com.codefoundation.Sambervise.gschema.xml
             ${CMAKE_BINARY_DIR}/data/
     COMMAND ${GLIB_COMPILE_SCHEMAS} ${CMAKE_BINARY_DIR}/data
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/org.ekm.sambervise.gschema.xml
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/au.com.codefoundation.Sambervise.gschema.xml
     COMMENT "Compiling GSettings schemas"
 )
 
 # ── Install ───────────────────────────────────────────────────────────────────
 
-install(FILES org.ekm.sambervise.gschema.xml
+install(FILES au.com.codefoundation.Sambervise.gschema.xml
     DESTINATION ${CMAKE_INSTALL_DATADIR}/glib-2.0/schemas
 )
 
-install(FILES org.ekm.sambervise.desktop
+install(FILES au.com.codefoundation.Sambervise.desktop
     DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
 )
 
