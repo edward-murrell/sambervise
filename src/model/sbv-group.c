@@ -10,6 +10,7 @@ struct _SbvGroup {
   char   **members;    /* GStrv of member DNs, owned */
   /* RFC2307 / POSIX */
   gint        gid_number; /* -1 = not present */
+  gint64      rid;        /* last subauthority of objectSid; -1 if absent */
   char      **member_uid; /* GStrv of Unix usernames, owned */
   /* Raw LDAP attribute dump — char* → GStrv, owned */
   GHashTable *ldap_attrs;
@@ -32,7 +33,7 @@ sbv_group_finalize (GObject *object)
 }
 
 static void sbv_group_class_init (SbvGroupClass *klass) { G_OBJECT_CLASS (klass)->finalize = sbv_group_finalize; }
-static void sbv_group_init       (SbvGroup *self)        { self->gid_number = -1; }
+static void sbv_group_init       (SbvGroup *self)        { self->gid_number = -1; self->rid = -1; }
 
 SbvGroup *
 sbv_group_new (void)
@@ -75,6 +76,9 @@ sbv_group_set_members (SbvGroup *self, char **members)
 
 gint sbv_group_get_gid_number (SbvGroup *self) { return self->gid_number; }
 void sbv_group_set_gid_number (SbvGroup *self, gint gid) { self->gid_number = gid; }
+
+gint64 sbv_group_get_rid (SbvGroup *self) { return self->rid; }
+void   sbv_group_set_rid (SbvGroup *self, gint64 rid) { self->rid = rid; }
 
 const char * const *
 sbv_group_get_member_uid (SbvGroup *self)

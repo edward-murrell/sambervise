@@ -19,6 +19,11 @@ const char * const *sbv_group_get_members (SbvGroup *self);
 guint        sbv_group_get_member_count   (SbvGroup *self);
 /* RFC2307 / POSIX attributes; -1 means attribute not present */
 gint         sbv_group_get_gid_number     (SbvGroup *self);
+/* Last subauthority of objectSid (the RID); -1 if SID was missing or
+ * malformed. Used to recognise well-known built-in groups (Domain
+ * Admins = 512, Schema Admins = 518, etc.) so we can warn before
+ * actions that would break their ID_TYPE_BOTH mapping. */
+gint64       sbv_group_get_rid            (SbvGroup *self);
 /* Returns a GStrv of Unix usernames (memberUid); caller does not own */
 const char * const *sbv_group_get_member_uid       (SbvGroup *self);
 guint               sbv_group_get_member_uid_count  (SbvGroup *self);
@@ -31,6 +36,7 @@ void        sbv_group_set_group_type   (SbvGroup *self, gint32 type);
 /* Takes ownership of a NULL-terminated array of strings */
 void        sbv_group_set_members      (SbvGroup *self, char **members);
 void        sbv_group_set_gid_number   (SbvGroup *self, gint gid);
+void        sbv_group_set_rid           (SbvGroup *self, gint64 rid);
 /* Takes ownership of a NULL-terminated array of Unix usernames */
 void        sbv_group_set_member_uid   (SbvGroup *self, char **uids);
 /* Raw LDAP attributes — GHashTable<char*,GStrv>; takes/returns ownership */

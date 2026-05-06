@@ -1157,6 +1157,44 @@ on_rfc_save_done (GObject *source, GAsyncResult *result, gpointer user_data)
   sbv_groups_panel_load (self, conn);
 }
 
+/* Issues the actual modify; called either directly when no warning is
+ * needed or from the AdwMessageDialog response when the user confirms. */
+static void
+do_rfc_save (SbvGroupsPanel *self, gint gid)
+{
+  gtk_widget_set_visible (self->rfc_error, FALSE);
+  gtk_widget_set_sensitive (self->rfc_save_btn, FALSE);
+  sbv_groups_set_unix_attrs_async (self->conn, self->selected_group, gid,
+                                    NULL, on_rfc_save_done, self);
+}
+
+/* Returns the human-readable name of the well-known built-in group with
+ * this RID, or NULL if the RID isn't one we want to warn about. The list
+ * is restricted to ID_TYPE_BOTH built-ins whose dual user/group mapping
+ * is required for normal AD/Sysvol operation; setting a gidNumber on
+ * them collapses them to plain groups and breaks file ownership. */
+static const char *
+sensitive_builtin_name (gint64 rid)
+{
+  switch (rid) {
+    case 512: return "Domain Admins";
+    case 518: return "Schema Admins";
+    case 519: return "Enterprise Admins";
+    default:  return NULL;
+  }
+}
+
+/* Saves the user's confirmation choice from the gidNumber-on-builtin
+ * warning dialog and proceeds with the modify if they picked "save". */
+static void
+on_gid_warn_response (AdwMessageDialog *dlg, const char *response, gpointer user_data)
+{
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  gint gid = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (dlg), "pending-gid"));
+  if (g_strcmp0 (response, "save") == 0)
+    do_rfc_save (self, gid);
+}
+
 static void
 on_rfc_save_clicked (GtkButton *btn, gpointer user_data)
 {
@@ -1164,14 +1202,45 @@ on_rfc_save_clicked (GtkButton *btn, gpointer user_data)
   SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
   if (!self->selected_group || !self->conn) return;
 
-  gtk_widget_set_visible (self->rfc_error, FALSE);
-  gtk_widget_set_sensitive (self->rfc_save_btn, FALSE);
-
   const char *gid_s = gtk_editable_get_text (GTK_EDITABLE (self->rfc_gid_entry));
   gint gid = *gid_s ? (gint) strtol (gid_s, NULL, 10) : -1;
 
-  sbv_groups_set_unix_attrs_async (self->conn, self->selected_group, gid,
-                                    NULL, on_rfc_save_done, self);
+  /* Warn before assigning a gidNumber to a built-in ID_TYPE_BOTH group.
+   * Only triggers when a value is being set (not cleared) and the group
+   * is one of the well-known built-ins identified by RID — names are
+   * localised on non-English DCs, so SID is the right key. */
+  gint64 rid = sbv_group_get_rid (self->selected_group);
+  const char *builtin = (gid >= 0) ? sensitive_builtin_name (rid) : NULL;
+  if (builtin) {
+    GtkWindow *parent = GTK_WINDOW (gtk_widget_get_root (GTK_WIDGET (self)));
+    GtkWidget *dlg = adw_message_dialog_new (parent,
+        "Assign a gidNumber to a built-in group?", NULL);
+    char *body = g_strdup_printf (
+      "%s is a built-in group whose Samba idmap mapping is "
+      "ID_TYPE_BOTH — it doubles as a user-like principal so it can own "
+      "files in Sysvol.\n\n"
+      "Setting gidNumber on it collapses that mapping to a plain group, "
+      "which can break Sysvol ownership and share permissions on member "
+      "servers.\n\n"
+      "Recommended instead: create a separate \"Unix Admins\" group with "
+      "its own gidNumber and nest it inside %s, or use the rid idmap "
+      "backend so no manual gidNumber is needed.",
+      builtin, builtin);
+    adw_message_dialog_set_body (ADW_MESSAGE_DIALOG (dlg), body);
+    g_free (body);
+    adw_message_dialog_add_response  (ADW_MESSAGE_DIALOG (dlg), "cancel", "_Cancel");
+    adw_message_dialog_add_response  (ADW_MESSAGE_DIALOG (dlg), "save",   "_Save Anyway");
+    adw_message_dialog_set_response_appearance (ADW_MESSAGE_DIALOG (dlg), "save",
+                                                 ADW_RESPONSE_DESTRUCTIVE);
+    adw_message_dialog_set_default_response (ADW_MESSAGE_DIALOG (dlg), "cancel");
+    adw_message_dialog_set_close_response   (ADW_MESSAGE_DIALOG (dlg), "cancel");
+    g_object_set_data (G_OBJECT (dlg), "pending-gid", GINT_TO_POINTER (gid));
+    g_signal_connect (dlg, "response", G_CALLBACK (on_gid_warn_response), self);
+    gtk_window_present (GTK_WINDOW (dlg));
+    return;
+  }
+
+  do_rfc_save (self, gid);
 }
 
 /* ── Helper: detail info row ────────────────────────────────────────────── */

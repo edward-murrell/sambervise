@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Groups panel: warn before assigning a `gidNumber` to a built-in
+  Samba `ID_TYPE_BOTH` group (Domain Admins, Schema Admins, Enterprise
+  Admins). Setting `gidNumber` on these collapses their dual
+  user/group mapping in `idmap.ldb` and can break Sysvol file
+  ownership and share permissions. The dialog explains the breakage
+  and recommends nesting a separate "Unix Admins" group instead.
+  Detection is by SID RID (512/518/519) so it works on non-English DCs
+  where the `cn` is localised.
+
 ### Fixed
 - Sidebar connection rows: the dot indicating active vs. inactive
   connection now renders correctly on icon themes that don't inherit

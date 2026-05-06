@@ -251,25 +251,19 @@ can pick it up later without re-litigating decisions.
 
 ## Safety warnings
 
-### Warn when assigning a gidNumber to Domain Admins  *(open)*
-- Context: in Samba AD, Domain Admins is mapped as `ID_TYPE_BOTH` by
-  idmap.ldb so it works as both a group and a user-like principal. That
-  dual mapping is what lets Domain Admins *own* files in Sysvol — Unix
-  groups can't own files, so the user-side of the mapping is required.
-- Setting `gidNumber` on Domain Admins (or other built-in groups that
-  rely on `ID_TYPE_BOTH`) collapses it to a plain group. File ownership
-  in Sysvol breaks, share permissions on member servers can become
-  invalid, and DC operations get compromised. The recommended pattern
-  is to create a separate "Unix Admins" group with its own `gidNumber`
-  and nest it inside Administrators / Domain Admins, or to use the
-  `rid` idmap backend so no manual `gidNumber` is needed.
-- Action: in the groups panel, when a user is about to save a
-  `gidNumber` on Domain Admins (and ideally other built-in
-  `ID_TYPE_BOTH` groups — Schema Admins, Enterprise Admins, etc.),
-  show an explicit warning dialog explaining the breakage and the
-  recommended alternative. Detect by SID suffix (Domain Admins =
-  `S-1-5-21-…-512`) rather than name, since names are localised.
-  Don't hard-block — warn loudly and require confirm.
+### ~~Warn when assigning a gidNumber to Domain Admins~~ *(DONE)*
+- Backend now requests `objectSid` for groups and parses the trailing
+  RID into `SbvGroup.rid` (locale-invariant, unlike `cn`).
+- Groups panel: when "Save Unix Attributes" is clicked and a
+  `gidNumber` is being set (not cleared) on a group whose RID is one
+  of {512 Domain Admins, 518 Schema Admins, 519 Enterprise Admins},
+  an `AdwMessageDialog` explains the `ID_TYPE_BOTH` breakage and
+  offers Cancel / Save Anyway (destructive). Confirming proceeds
+  with the modify; cancelling aborts. Doesn't hard-block.
+- Could extend later to BUILTIN groups (`S-1-5-32-*` like
+  Administrators = 544) by also tracking the domain-vs-builtin SID
+  prefix, but the well-known domain-RID set covers the practical
+  Sysvol-breakage cases.
 
 ## Open questions / deferred
 

@@ -31,6 +31,7 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
     "description", "groupType", "member",
     /* RFC2307 / POSIX */
     "gidNumber", "memberUid",
+    "objectSid",
     NULL
   };
 
@@ -89,6 +90,25 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
       bv = ldap_get_values_len (ld, entry, "gidNumber");
       if (bv && bv[0])
         sbv_group_set_gid_number (group, (gint) strtol (bv[0]->bv_val, NULL, 10));
+      ldap_value_free_len (bv);
+
+      /* Parse the RID (last 4 bytes of objectSid, little-endian) so the UI
+       * can recognise well-known built-in groups (Domain Admins = 512,
+       * Schema Admins = 518, Enterprise Admins = 519, etc.). */
+      bv = ldap_get_values_len (ld, entry, "objectSid");
+      if (bv && bv[0] && bv[0]->bv_len >= 8) {
+        const guchar *raw = (const guchar *) bv[0]->bv_val;
+        guchar sub_count  = raw[1];
+        gsize  expect_len = 8 + (gsize) sub_count * 4;
+        if (sub_count > 0 && bv[0]->bv_len >= expect_len) {
+          const guchar *p = raw + 8 + (sub_count - 1) * 4;
+          guint32 rid = (guint32) p[0]
+                      | ((guint32) p[1] << 8)
+                      | ((guint32) p[2] << 16)
+                      | ((guint32) p[3] << 24);
+          sbv_group_set_rid (group, (gint64) rid);
+        }
+      }
       ldap_value_free_len (bv);
 
       bv = ldap_get_values_len (ld, entry, "memberUid");
