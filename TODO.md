@@ -213,12 +213,15 @@ can pick it up later without re-litigating decisions.
   *(0.1.10: the per-panel row was removed and the same information moved
   into a new window-level status bar that also shows server and
   principal — see "Status bar" item below.)*
-- Deferred follow-ups (open):
-  - "Probe DC" button in the connect/edit dialog that calls
-    `sbv_idmap_hints_query_async` directly (would need a way to
-    acquire/borrow an LDAP connection from edit-mode where there is no
-    live conn of its own).
-  - An "About this connection" sidebar entry / popover.
+- Deferred follow-ups:
+  - *(DONE — 0.2.1)* "Probe DC" button now performs a bound idmap
+    read in addition to the anonymous RootDSE summary. `sbv-probe`
+    grew an optional bind step (Kerberos or simple, mirroring
+    `sbv-connection`) that opens a fresh handle, binds with the
+    dialog's profile + password, and queries the SFU30 idmap location
+    directly — no shared connection borrowing needed. Results render
+    inline in the existing probe frame.
+  - An "About this connection" sidebar entry / popover. *(open)*
 
 ## Window chrome
 

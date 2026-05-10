@@ -64,6 +64,9 @@ dialog_data_free (DialogData *d)
 
 /* ── Probe DC ──────────────────────────────────────────────────────────── */
 
+/* Forward decl — defined further down with the connect-flow helpers. */
+static SbvProfile *build_profile (DialogData *d);
+
 /* Append a "<label>: <value>" row to the probe results box. */
 static void
 probe_append_row (DialogData *d, const char *label, const char *value)
@@ -85,9 +88,10 @@ probe_append_row (DialogData *d, const char *label, const char *value)
 }
 
 /* Render the RootDSE attrs into the probe results frame, picking the
- * common ones an admin actually wants to see at a glance. */
+ * common ones an admin actually wants to see at a glance. Idmap rows
+ * (when bound) are appended after the RootDSE summary. */
 static void
-probe_render_attrs (DialogData *d, GHashTable *attrs)
+probe_render_result (DialogData *d, SbvProbeResult *res)
 {
   GtkWidget *child;
   while ((child = gtk_widget_get_first_child (d->probe_box)) != NULL)
@@ -105,7 +109,7 @@ probe_render_attrs (DialogData *d, GHashTable *attrs)
   };
 
   for (int i = 0; pairs[i].attr; i++) {
-    char **vals = g_hash_table_lookup (attrs, pairs[i].attr);
+    char **vals = g_hash_table_lookup (res->rootdse, pairs[i].attr);
     if (!vals || !vals[0]) continue;
     char *joined = g_strjoinv (", ", vals);
     probe_append_row (d, pairs[i].label, joined);
@@ -113,6 +117,32 @@ probe_render_attrs (DialogData *d, GHashTable *attrs)
   }
   if (!gtk_widget_get_first_child (d->probe_box))
     probe_append_row (d, "Result", "Reachable, but RootDSE is empty.");
+
+  if (res->idmap) {
+    SbvIdmapHints *h = res->idmap;
+    char *uid_range = g_strdup_printf ("%" G_GINT64_FORMAT "–%" G_GINT64_FORMAT,
+                                        h->uid_min, h->uid_max);
+    char *gid_range = g_strdup_printf ("%" G_GINT64_FORMAT "–%" G_GINT64_FORMAT,
+                                        h->gid_min, h->gid_max);
+    probe_append_row (d, "UID range", uid_range);
+    probe_append_row (d, "GID range", gid_range);
+    g_free (uid_range);
+    g_free (gid_range);
+
+    if (h->next_uid_hint >= 0) {
+      char *s = g_strdup_printf ("%" G_GINT64_FORMAT, h->next_uid_hint);
+      probe_append_row (d, "Next UID hint", s);
+      g_free (s);
+    }
+    if (h->next_gid_hint >= 0) {
+      char *s = g_strdup_printf ("%" G_GINT64_FORMAT, h->next_gid_hint);
+      probe_append_row (d, "Next GID hint", s);
+      g_free (s);
+    }
+    probe_append_row (d, "Source", h->source ?: "?");
+  } else if (res->bind_error) {
+    probe_append_row (d, "Idmap lookup", res->bind_error);
+  }
 }
 
 /* Probe completion handler. */
@@ -126,8 +156,8 @@ on_probe_done (GObject *source, GAsyncResult *result, gpointer user_data)
   gtk_widget_set_sensitive (d->probe_btn, TRUE);
   gtk_button_set_label (GTK_BUTTON (d->probe_btn), "Probe");
 
-  GHashTable *attrs = sbv_probe_dc_finish (result, &err);
-  if (!attrs) {
+  SbvProbeResult *res = sbv_probe_dc_finish (result, &err);
+  if (!res) {
     GtkWidget *child;
     while ((child = gtk_widget_get_first_child (d->probe_box)) != NULL)
       gtk_box_remove (GTK_BOX (d->probe_box), child);
@@ -138,13 +168,42 @@ on_probe_done (GObject *source, GAsyncResult *result, gpointer user_data)
     return;
   }
 
-  probe_render_attrs (d, attrs);
+  probe_render_result (d, res);
   gtk_widget_set_visible (d->probe_frame, TRUE);
-  g_hash_table_unref (attrs);
+
+  /* Populate the POSIX range spinners from the probed hints. Only fill
+   * empty (0) fields so we don't clobber values the admin just typed.
+   * Auto-expand the section so the change is visible. */
+  if (res->idmap) {
+    SbvIdmapHints *h         = res->idmap;
+    GtkSpinButton *spins[4]  = {
+      GTK_SPIN_BUTTON (d->uid_min_spin),
+      GTK_SPIN_BUTTON (d->uid_max_spin),
+      GTK_SPIN_BUTTON (d->gid_min_spin),
+      GTK_SPIN_BUTTON (d->gid_max_spin),
+    };
+    gint64         vals[4]   = { h->uid_min, h->uid_max, h->gid_min, h->gid_max };
+    gboolean       changed   = FALSE;
+    for (int i = 0; i < 4; i++) {
+      if (vals[i] > 0 && gtk_spin_button_get_value (spins[i]) == 0) {
+        gtk_spin_button_set_value (spins[i], (double) vals[i]);
+        changed = TRUE;
+      }
+    }
+    if (changed)
+      gtk_expander_set_expanded (GTK_EXPANDER (d->posix_expander), TRUE);
+  }
+
+  sbv_probe_result_free (res);
 }
 
-/* Probe button click: fires an anonymous RootDSE read against host:port
- * using the TLS settings from the dialog. No bind, no profile mutation. */
+/* Probe button click: fires a RootDSE read against host:port using the
+ * TLS settings from the dialog. When the dialog has enough auth info to
+ * bind (Kerberos always; simple-bind requires DN + password), the probe
+ * also binds and queries the SFU30 idmap range so the admin can confirm
+ * what UID/GID values the DC is publishing — without committing a
+ * profile or running a connect first. The bound result is reported in
+ * the same probe results frame; bind failures are non-fatal. */
 static void
 on_probe_clicked (GtkButton *btn, gpointer user_data)
 {
@@ -162,6 +221,24 @@ on_probe_clicked (GtkButton *btn, gpointer user_data)
   gboolean tls       = gtk_check_button_get_active (GTK_CHECK_BUTTON (d->use_tls_check));
   gboolean skip_cert = gtk_check_button_get_active (GTK_CHECK_BUTTON (d->skip_cert_check));
 
+  /* Decide whether to attempt a bound idmap probe. Needs a base DN to
+   * locate the SFU30 entry; for simple-bind, also needs DN+password. */
+  const char *base_dn = gtk_editable_get_text (GTK_EDITABLE (d->base_dn_entry));
+  gboolean    simple  = gtk_check_button_get_active (GTK_CHECK_BUTTON (d->simple_radio));
+  const char *bind_dn = simple
+    ? gtk_editable_get_text (GTK_EDITABLE (d->bind_dn_entry)) : NULL;
+  const char *passwd  = simple
+    ? gtk_editable_get_text (GTK_EDITABLE (d->password_entry)) : NULL;
+
+  SbvProfile *bind_profile = NULL;
+  const char *bind_password = NULL;
+  if (base_dn && *base_dn &&
+      (!simple || (bind_dn && *bind_dn && passwd && *passwd)))
+    {
+      bind_profile = build_profile (d);
+      bind_password = passwd;
+    }
+
   gtk_widget_set_visible (d->error_label, FALSE);
   gtk_widget_set_sensitive (d->probe_btn, FALSE);
   gtk_button_set_label (GTK_BUTTON (d->probe_btn), "Probing…");
@@ -170,7 +247,9 @@ on_probe_clicked (GtkButton *btn, gpointer user_data)
   d->probe_cancel = g_cancellable_new ();
 
   sbv_probe_dc_async (host, port, ldaps, tls, skip_cert,
+                       bind_profile, bind_password,
                        d->probe_cancel, on_probe_done, d);
+  g_clear_object (&bind_profile);
 }
 
 /* ── About-this-connection popover (static profile data) ───────────────── */

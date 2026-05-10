@@ -5,6 +5,18 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-10
+
+### Changed
+- Connect/Edit dialog: the "Probe" button now also performs a bound
+  read of the well-known SFU30 idmap location
+  (`CN=ypservers,CN=ypServ30,…`) when the dialog has enough auth info
+  (Kerberos always; simple-bind needs a Bind DN and password). The
+  resolved UID/GID range, any DC-published next-UID/next-GID hints,
+  and the source attribution are surfaced in the probe results frame
+  alongside the existing RootDSE summary. Bind failures are
+  non-fatal — the anonymous RootDSE result is still shown.
+
 ## [0.2.0] - 2026-05-06
 
 ### Added
