@@ -4,6 +4,7 @@
 #include "sbv-users-panel.h"
 #include "sbv-groups-panel.h"
 #include "sbv-computers-panel.h"
+#include "sbv-contacts-panel.h"
 #include "sbv-ldap-panel.h"
 #include "../backend/sbv-idmap-hints.h"
 
@@ -20,6 +21,7 @@ struct _SbvWindow {
   GtkListBoxRow        *nav_users_row;
   GtkListBoxRow        *nav_groups_row;
   GtkListBoxRow        *nav_computers_row;
+  GtkListBoxRow        *nav_contacts_row;
   GtkListBoxRow        *nav_ldap_row;
   GtkWidget            *nav_separator;
   GtkButton            *add_conn_btn;
@@ -39,6 +41,7 @@ struct _SbvWindow {
   SbvUsersPanel        *users_panel;
   SbvGroupsPanel       *groups_panel;
   SbvComputersPanel    *computers_panel;
+  SbvContactsPanel     *contacts_panel;
   SbvLdapPanel         *ldap_panel;
 };
 
@@ -358,6 +361,8 @@ on_nav_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
     gtk_stack_set_visible_child_name (self->content_stack, "groups");
   else if (row == self->nav_computers_row)
     gtk_stack_set_visible_child_name (self->content_stack, "computers");
+  else if (row == self->nav_contacts_row)
+    gtk_stack_set_visible_child_name (self->content_stack, "contacts");
   else if (row == self->nav_ldap_row)
     gtk_stack_set_visible_child_name (self->content_stack, "ldap");
 }
@@ -412,6 +417,7 @@ sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profi
   sbv_users_panel_load     (self->users_panel,     conn);
   sbv_groups_panel_load    (self->groups_panel,    conn);
   sbv_computers_panel_load (self->computers_panel, conn);
+  sbv_contacts_panel_load  (self->contacts_panel,  conn);
   sbv_ldap_panel_load      (self->ldap_panel,      conn);
 
   status_bar_update_identity (self);
@@ -447,6 +453,7 @@ sbv_window_class_init (SbvWindowClass *klass)
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_users_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_groups_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_computers_row);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, nav_contacts_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_ldap_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_separator);
   gtk_widget_class_bind_template_child (wc, SbvWindow, add_conn_btn);
@@ -466,11 +473,13 @@ sbv_window_init (SbvWindow *self)
   self->users_panel     = SBV_USERS_PANEL     (sbv_users_panel_new ());
   self->groups_panel    = SBV_GROUPS_PANEL    (sbv_groups_panel_new ());
   self->computers_panel = SBV_COMPUTERS_PANEL (sbv_computers_panel_new ());
+  self->contacts_panel  = SBV_CONTACTS_PANEL  (sbv_contacts_panel_new ());
   self->ldap_panel      = SBV_LDAP_PANEL      (sbv_ldap_panel_new ());
 
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->users_panel),     "users");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->groups_panel),    "groups");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->computers_panel), "computers");
+  gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->contacts_panel),  "contacts");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->ldap_panel),      "ldap");
 
   g_signal_connect (self->add_conn_btn,  "clicked",

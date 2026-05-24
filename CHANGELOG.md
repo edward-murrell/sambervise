@@ -5,6 +5,21 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-25
+
+### Added
+- Contacts panel: new "Contacts" sidebar entry (between Computers and
+  Raw LDAP) for managing mail-enabled `contact` objects — directory
+  entries that have email and phone details but no logon account. The
+  panel lists contacts under the connection's base DN with a search
+  box, opens a detail pane for editing identity, primary mail,
+  multi-valued `proxyAddresses` (one per line; use `SMTP:` for the
+  primary and `smtp:` for secondaries), telephone numbers (work,
+  mobile, fax), and full postal address fields. New contacts are
+  created via a "+" toolbar button that opens a dialog defaulting the
+  container to `CN=Users,<base>`. A "Delete Contact…" button in a
+  Danger Zone section requires typing the contact name to confirm.
+
 ## [0.2.1] - 2026-05-10
 
 ### Changed

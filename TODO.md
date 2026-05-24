@@ -121,7 +121,7 @@ can pick it up later without re-litigating decisions.
 
 ## Mail-enabled objects
 
-### 9. Contacts  *(open)*
+### 9. Contacts  *(DONE — 0.3.0)*
 - Backend: `backend/sbv-contacts-backend.{h,c}` —
   `sbv_contacts_list_async/finish`, `sbv_contacts_create_async/finish`,
   `sbv_contacts_delete_async/finish`, `sbv_contacts_update_async/finish`.
