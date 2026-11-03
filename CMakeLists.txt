@@ -23,29 +23,7 @@ add_subdirectory(data)
 add_subdirectory(src)
 add_subdirectory(tests)
 
-# ── Debian package (cpack -G DEB) ─────────────────────────────────────────────
+# ── Documentation ─────────────────────────────────────────────────────────────
 
-set(CPACK_GENERATOR                       "DEB")
-set(CPACK_PACKAGE_NAME                    "sambervise")
-set(CPACK_PACKAGE_VERSION                 "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_CONTACT                 "Edward Murrell <edward@murrell.co.nz>")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-    "GTK 4 GUI for administering Samba 4 Active Directory Domain Controllers")
-set(CPACK_DEBIAN_FILE_NAME                "DEB-DEFAULT")
-set(CPACK_DEBIAN_PACKAGE_SECTION          "admin")
-set(CPACK_DEBIAN_PACKAGE_PRIORITY         "optional")
-set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libgtk-4-1 (>= 4.0), libadwaita-1-0 (>= 1.0), libldap-2.5-0, libkrb5-3, libsasl2-modules-gssapi-mit")
-set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-    "${CMAKE_SOURCE_DIR}/packaging/postinst"
-    "${CMAKE_SOURCE_DIR}/packaging/postrm")
-
-# Release notes / changelog bundled into the .deb
-set(CPACK_PACKAGE_DESCRIPTION_FILE "${CMAKE_SOURCE_DIR}/CHANGELOG.md")
 install(FILES "${CMAKE_SOURCE_DIR}/CHANGELOG.md"
         DESTINATION "${CMAKE_INSTALL_DOCDIR}")
-
-# Exclude gschemas.compiled — it's a system-wide database rebuilt by postinst
-set(CPACK_IGNORE_FILES "/gschemas[.]compiled$")
-
-include(CPack)

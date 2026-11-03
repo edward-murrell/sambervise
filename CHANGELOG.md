@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   created via a "+" toolbar button that opens a dialog defaulting the
   container to `CN=Users,<base>`. A "Delete Contact…" button in a
   Danger Zone section requires typing the contact name to confirm.
+- Native packages for Ubuntu 24.04 / Mint 22, Debian 12 / LMDE 6,
+  Debian 13 / LMDE 7, AlmaLinux / RHEL 9 and 10, and Fedora, on amd64
+  and arm64, installable from the signed package repository
+  (`curl -fsSL https://edward-murrell.github.io/packages/setup.sh | sudo sh`).
+- Licence text (`COPYING`, GPL-3.0-or-later).
+
+### Fixed
+- The Ubuntu 24.04 / Mint 22 package can now be installed, and the
+  Debian 12 / LMDE 6 package now starts: previous packages declared the
+  wrong OpenLDAP library. Each release now gets its own build with
+  correct dependencies.
+
+### Removed
+- Ubuntu 22.04 / Mint 21 are no longer supported (libadwaita 1.1 is
+  too old).
 
 ## [0.2.1] - 2026-05-10
 

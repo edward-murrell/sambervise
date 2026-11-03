@@ -24,8 +24,8 @@ install(FILES au.com.codefoundation.Sambervise.desktop
 )
 
 # Recompile the system schema cache after a direct install.
-# Skip when DESTDIR is set (e.g. CPack staging) — the postinst script handles
-# that case on the target machine.
+# Skip when DESTDIR is set (distro package builds) — dpkg and rpm triggers
+# recompile the cache when the package is installed on the target machine.
 install(CODE "
     if(\"\$ENV{DESTDIR}\" STREQUAL \"\")
         message(STATUS \"Compiling GSettings schemas\")

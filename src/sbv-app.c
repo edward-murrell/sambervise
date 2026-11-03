@@ -4,6 +4,11 @@
 
 #include <adwaita.h>
 
+/* G_APPLICATION_DEFAULT_FLAGS arrived in GLib 2.74; EL 9 ships 2.68. */
+#if !GLIB_CHECK_VERSION(2, 74, 0)
+#define G_APPLICATION_DEFAULT_FLAGS G_APPLICATION_FLAGS_NONE
+#endif
+
 struct _SbvApp {
   AdwApplication  parent;
   GListStore     *profiles_store;

@@ -14,6 +14,27 @@ Sambervise connects to remote DCs over LDAP/LDAPS. It has no effect on the local
 - **DC discovery** — finds Domain Controllers automatically via DNS SRV records (`_ldap._tcp.dc._msdcs.<domain>`)
 - **TLS support** — LDAPS and STARTTLS
 
+## Installing packages
+
+Signed packages are published for Ubuntu 24.04 / Linux Mint 22, Debian 12 / LMDE 6,
+Debian 13 / LMDE 7, AlmaLinux / RHEL 9 and 10, and Fedora (amd64 and arm64).
+Add the package repository once:
+
+```bash
+curl -fsSL https://edward-murrell.github.io/packages/setup.sh | sudo sh
+```
+
+then install with:
+
+```bash
+sudo apt install sambervise     # Debian, Ubuntu, Mint
+sudo dnf install sambervise     # Fedora, AlmaLinux, RHEL
+```
+
+Ubuntu 22.04 / Mint 21 are not supported: their libadwaita (1.1) is too old.
+
+## Building from source
+
 ## Requirements
 
 ### Build dependencies
@@ -71,23 +92,20 @@ cmake --build build
 sudo cmake --install build
 ```
 
-## Building a Debian package
+## Building distribution packages
 
-After configuring and building, run CPack from the build directory:
-
-```bash
-cmake -B build -G Ninja
-cmake --build build
-cd build && cpack -G DEB
-```
-
-This produces `sambervise_0.1.0_amd64.deb` (name and architecture are determined automatically). Install it with:
+Native packaging lives in `debian/` and `packaging/sambervise.spec`. Each
+package is built on the release it targets, so library dependencies are
+detected automatically. Run the build script as root inside a clean container
+of the target release, from the repository root:
 
 ```bash
-sudo dpkg -i sambervise_0.1.0_amd64.deb
+packaging/build-deb.sh 0.3.0    # -> out/sambervise_0.3.0+<codename>_<arch>.deb
+packaging/build-rpm.sh 0.3.0    # -> out/sambervise-0.3.0-1.<dist>.<arch>.rpm
 ```
 
-The package depends on `libgtk-4-1`, `libadwaita-1-0`, `libldap-2.5-0`, and `libsasl2-modules-gssapi-mit`. The GSettings schema cache is updated automatically via the package's postinst script.
+The Release workflow (`.github/workflows/release.yml`) does this for every
+supported release on amd64 and arm64 when a `v*` tag is pushed.
 
 ## Screenshots
 
@@ -114,4 +132,5 @@ ctest --test-dir build --output-on-failure
 ```
 
 ## License
-GPLv3
+
+GPL-3.0-or-later. See [COPYING](COPYING).

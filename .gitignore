@@ -14,3 +14,15 @@
 
 # Clangd
 .clangd/
+
+# Package build output
+/out/
+
+# Local dpkg-buildpackage leftovers
+/obj-*/
+/debian/.debhelper/
+/debian/sambervise/
+/debian/debhelper-build-stamp
+/debian/files
+/debian/*.substvars
+/debian/*.debhelper.log

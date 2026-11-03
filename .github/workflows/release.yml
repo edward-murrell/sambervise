@@ -1,0 +1,173 @@
+name: Release
+
+# Push a version tag to build native .deb and .rpm packages on every supported
+# release (amd64 + arm64), install-test each one in a clean container, attach
+# them to the GitHub release and tell the central packages repo to republish.
+# Run it by hand (Actions -> Release -> Run workflow) to build and test without releasing.
+on:
+  push:
+    tags: ["v*", "[0-9]*.[0-9]*"]     # v1.2.0 or 1.2.0
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PACKAGES_REPO: edward-murrell/packages
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        name: Work out the version (tag must match CMakeLists.txt)
+        run: |
+          CMAKE_VERSION=$(sed -nE 's/^project\([A-Za-z0-9_-]+ VERSION ([0-9][0-9.]*).*/\1/p' CMakeLists.txt)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            if [ "$VERSION" != "$CMAKE_VERSION" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME doesn't match CMakeLists.txt version $CMAKE_VERSION"; exit 1
+            fi
+          else
+            VERSION="$CMAKE_VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  deb:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        target:                                  # suite name must match the central repo's SUITES
+          - { suite: noble,    image: "ubuntu:24.04" }
+          - { suite: bookworm, image: "debian:12" }
+          - { suite: trixie,   image: "debian:13" }
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ${{ matrix.target.image }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: packaging/build-deb.sh "${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb-${{ matrix.target.suite }}-${{ matrix.arch }}
+          path: out/*.deb
+          if-no-files-found: error
+
+  deb-test:
+    needs: deb
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { suite: noble,    image: "ubuntu:24.04" }
+          - { suite: bookworm, image: "debian:12" }
+          - { suite: trixie,   image: "debian:13" }
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ${{ matrix.target.image }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: deb-${{ matrix.target.suite }}-${{ matrix.arch }}
+          path: out
+      - name: Install in a clean system and check every binary's libraries resolve
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y ./out/*.deb
+          for deb in out/*.deb; do
+            pkg=$(dpkg-deb -f "$deb" Package)
+            for f in $(dpkg -L "$pkg"); do
+              [ -f "$f" ] && [ -x "$f" ] || continue
+              if ldd "$f" 2>/dev/null | grep 'not found'; then
+                echo "::error::$f has unresolved libraries on ${{ matrix.target.suite }}"; exit 1
+              fi
+            done
+          done
+
+  rpm:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["almalinux:9", "almalinux:10", "fedora:latest"]
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install tools the checkout action needs
+        run: dnf install -y -q tar gzip findutils
+      - uses: actions/checkout@v7
+      - name: Build
+        run: packaging/build-rpm.sh "${{ needs.version.outputs.version }}"
+      - id: name
+        run: echo "slug=$(echo '${{ matrix.image }}' | tr ':.' '--')-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpm-${{ steps.name.outputs.slug }}
+          path: out/*.rpm
+          if-no-files-found: error
+
+  rpm-test:
+    needs: rpm
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["almalinux:9", "almalinux:10", "fedora:latest"]
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ${{ matrix.image }}
+    steps:
+      - run: dnf install -y -q tar gzip findutils
+      - id: name
+        run: echo "slug=$(echo '${{ matrix.image }}' | tr ':.' '--')-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v8
+        with:
+          name: rpm-${{ steps.name.outputs.slug }}
+          path: out
+      - name: Install in a clean system and check every binary's libraries resolve
+        run: |
+          . /etc/os-release
+          [ "$ID" = fedora ] || dnf install -y -q epel-release
+          dnf install -y --nogpgcheck ./out/*.rpm
+          for rpmf in out/*.rpm; do
+            for f in $(rpm -qlp "$rpmf"); do
+              [ -f "$f" ] && [ -x "$f" ] || continue
+              if ldd "$f" 2>/dev/null | grep 'not found'; then
+                echo "::error::$f has unresolved libraries on ${{ matrix.image }}"; exit 1
+              fi
+            done
+          done
+
+  release:
+    needs: [deb-test, rpm-test]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: out
+          merge-multiple: true
+      - name: Attach packages to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ls -l out/
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" out/* --clobber
+      - name: Republish the package repository
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::PACKAGES_DISPATCH_TOKEN not set; the repo will pick this release up on its nightly run."
+            exit 0
+          fi
+          gh workflow run publish.yml -R "$PACKAGES_REPO"
