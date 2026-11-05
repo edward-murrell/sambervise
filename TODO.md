@@ -3,9 +3,138 @@
 Working list of upcoming features. Each item captures the agreed scope so we
 can pick it up later without re-litigating decisions.
 
+Planned work follows the order in `sambervise-roadmap.md`. Roadmap items are
+numbered R1 to R18. Older items keep their original numbers (#0 to #13) and
+are listed under "Completed" once done.
+
+Versioning: each new feature ships as a minor version bump (0.3.x → 0.4.0).
+Bug fixes ship as a patch bump.
+
+# Planned
+
+## Phase 1: Finish the ADUC basics
+
+### R1. OU management and moving objects  *(open)*
+- Create, rename and delete OUs.
+- Move users, groups, computers and contacts between containers with
+  `ldap_rename_s` and a new superior DN. The user and contact backends
+  already call `ldap_rename_s` for CN changes, but always pass a NULL
+  new superior.
+- GPO links (R15), delegation (R17) and move-to-OU in bulk (R8) build on
+  this.
+
+### R2. Search box and basic filters  *(open, replaces #12)*
+- Every panel already has a search box that filters the loaded list.
+- Extend matching to name and sAMAccountName where it isn't already.
+- Add toggles for disabled, locked out and password expired.
+- Deferred from #12: password age, stale computers (no logon in N days)
+  and missing DNS registration.
+
+### R3. Lockout status and unlock  *(open)*
+- Show lockout state on the user pane.
+- Unlock button clears `lockoutTime`.
+- The R2 "locked out" toggle depends on the same lockout read.
+
+### R4. "Member Of" on users and computers  *(open)*
+- `memberOf` is a read-only back-link. Display it on the user and
+  computer panes.
+- Edit membership by modifying each group's `member` attribute.
+
+### R5. Profile fields  *(open)*
+- Home folder (`homeDirectory`), home drive (`homeDrive`), logon script
+  (`scriptPath`) and profile path (`profilePath`).
+- `homeDirectory` is free for this since 0.3.1. The Unix home field now
+  uses `unixHomeDirectory`.
+
+## Phase 2: The escape hatch and bulk work
+
+### R6. Editable raw LDAP attributes  *(partly done in 0.1.12)*
+- Done: per-attribute add, modify and delete in the Raw LDAP browser,
+  saved as one batched modify.
+- Open: type-aware editors for multi-valued strings and integers.
+  Multi-valued attributes are still edited as one "; "-joined string.
+- Open: show `objectSid`, `objectGUID` and timestamps in readable form,
+  read-only.
+
+### R7. Arbitrary LDAP filter search  *(partly done in 0.1.12)*
+- Done: filter search box in the Raw LDAP browser (see #6 follow-ups).
+- Open: saved queries.
+
+### R8. Bulk operations  *(open, replaces #11)*
+- Multi-select on the users and computers lists. No panel supports
+  multi-select yet.
+- Actions: enable, disable, reset password, and move to OU (needs R1).
+- Confirmation dialog showing the count and the first N items.
+- Backend: one `ldap_modify_ext_s` per object on a single connection.
+
+### R9. Copy user from template  *(open)*
+- Copy group membership, OU, profile path and account flags to a new
+  user.
+- Needs R4 (membership) and R5 (profile fields).
+
+## Phase 3: DNS
+
+### R10. DNS management  *(open)*
+- Zones live in LDAP as `dnsZone` and `dnsNode` objects under the
+  `DomainDnsZones` and `ForestDnsZones` partitions. No RPC needed.
+- Main work: parse and build the binary `dnsRecord` blobs (MS-DNSP).
+- First cut: A, AAAA, CNAME and PTR records in existing zones.
+- Later: zone creation, SRV, MX and TXT.
+
+## Phase 4: Domain-level policy and structure
+
+### R11. Domain password and lockout policy  *(open)*
+- Form over attributes on the domain root: `minPwdLength`,
+  `lockoutThreshold`, `maxPwdAge` and related.
+
+### R12. Fine-grained password policies (PSOs)  *(open)*
+- `msDS-PasswordSettings` objects in the Password Settings Container,
+  applied to users or groups. Reuses the R11 form.
+
+### R13. Sites and subnets  *(open)*
+- Start with a read-only view of which DC sits in which site.
+- Then create sites and subnets and assign subnets to sites, all in the
+  Configuration partition.
+
+### R14. FSMO role owner display  *(open)*
+- Read `fSMORoleOwner` for health checks.
+- Transfers stay with `samba-tool fsmo`.
+
+## Phase 5: Harder but high-value
+
+### R15. GPO links  *(open, needs R1)*
+- Link, unlink, order, enforce and block inheritance via `gPLink` and
+  `gPOptions` on OUs and the domain.
+- Ship before any GPO editing.
+
+### R16. GPO creation and deletion  *(open)*
+- Needs a `groupPolicyContainer` object plus the SYSVOL folder over SMB,
+  which adds a libsmbclient dependency.
+- Editing policy contents stays with `samba-tool gpo` and Windows GPMC.
+
+### R17. Object security and delegation  *(open)*
+- View and edit `nTSecurityDescriptor`. Needs the SD_FLAGS control,
+  SDDL or binary parsing, and an ACL editor.
+- First cut: read-only effective-permissions view.
+
+### R18. Recycle Bin support  *(open)*
+- Restore objects from the Deleted Objects container with the
+  show-deleted control.
+- Check support in target Samba versions first.
+- Settles the "move to recycle bin" open question below.
+
+## Skip or defer
+
+- Replication status and forcing replication. These need DRSUAPI RPC, and
+  `samba-tool drs showrepl` already covers them.
+- Trusts. Rare in Samba deployments.
+- Mail-enabled groups (#10). Scope kept below. Comes after Phases 1 to 3.
+
+# Completed and older items
+
 ## Pre-requisite
 
-### 0. Expose well-known LDAP locations  *(DONE — 0.1.2)*
+### 0. Expose well-known LDAP locations  *(DONE in 0.1.2)*
 - Backend module: `backend/sbv-idmap-hints.{h,c}` with `SbvIdmapHints` struct
   (`uid_min/uid_max/gid_min/gid_max/next_uid_hint/next_gid_hint/source`).
 - Reads `msSFU30MaxUidNumber` / `msSFU30MaxGidNumber` from
@@ -16,15 +145,15 @@ can pick it up later without re-litigating decisions.
 - `sbv_idmap_hints_from_profile()` for sync use; `sbv_idmap_hints_query_async()`
   for live DC query that merges DC hints with profile config.
 - Tests: `tests/test-idmap.c` (defaults, profile override, profile copy).
-- Follow-ups (open):
-  - Surface the configured range in the connect dialog / profile editor UI
-    (currently only editable by hand in `connections.ini`).
-  - Display the resolved hints somewhere in the UI so an admin can confirm
-    "yes, the DC published these".
+- Follow-ups:
+  - *(DONE in 0.1.7)* Surface the configured range in the connect dialog
+    and profile editor (see #7).
+  - *(DONE in 0.1.10)* Display the resolved hints in the UI (window
+    status bar).
 
 ## Object lifecycle
 
-### 1. Add/delete users  *(DONE — 0.1.2)*
+### 1. Add/delete users  *(DONE in 0.1.2)*
 - Backend: `sbv_users_create_async` (ldap_add_ext_s) +
   `sbv_users_delete_async` (ldap_delete_ext_s).
 - Create dialog `ui/sbv-create-user-dialog.{h,c}`: sAMAccountName, given/sn,
@@ -34,7 +163,7 @@ can pick it up later without re-litigating decisions.
   modal requires the user's sAMAccountName before the destructive button
   activates.
 
-### 2. Add/delete groups  *(DONE — 0.1.2)*
+### 2. Add/delete groups  *(DONE in 0.1.2)*
 - Backend: `sbv_groups_create_async` (ldap_add_ext_s with groupType bitmask)
   + `sbv_groups_delete_async` (ldap_delete_ext_s).
 - Create dialog `ui/sbv-create-group-dialog.{h,c}`: sAMAccountName,
@@ -45,7 +174,7 @@ can pick it up later without re-litigating decisions.
 - `groupType` AD bits exported from `sbv-groups-backend.h` so the dialog
   doesn't redefine them.
 
-### 3. Add/delete computers  *(DONE — 0.1.3)*
+### 3. Add/delete computers  *(DONE in 0.1.3)*
 - Backend: `sbv_computers_create_async` (ldap_add_ext_s with
   `userAccountControl=WORKSTATION_TRUST_ACCOUNT|ACCOUNTDISABLE`) +
   `sbv_computers_delete_async` (ldap_delete_ext_s).
@@ -59,7 +188,7 @@ can pick it up later without re-litigating decisions.
 
 ## RFC2307 / POSIX
 
-### 4. UID/GID collision detection  *(DONE — 0.1.3)*
+### 4. UID/GID collision detection  *(DONE in 0.1.3)*
 - Backend: `backend/sbv-collisions.{h,c}` —
   `sbv_collisions_uid_check_async` (filter
   `(&(objectClass=user)(uidNumber=<n>))`) and
@@ -75,7 +204,7 @@ can pick it up later without re-litigating decisions.
   if the entry text has changed since the request) was sufficient for v1.
   Revisit if DC traffic becomes noticeable.
 
-### 5. UID/GID auto-assignment  *(DONE — 0.1.4)*
+### 5. UID/GID auto-assignment  *(DONE in 0.1.4)*
 - Backend: `sbv_collisions_next_free_uid_async/finish` and
   `_gid_async/finish` — bounded LDAP search over `[range_min, range_max]`
   for the chosen attribute, sort taken values, return the first gap (-1
@@ -92,7 +221,7 @@ can pick it up later without re-litigating decisions.
 
 ## LDAP browser
 
-### 6. Raw LDAP browser panel (read-only first cut)  *(DONE — 0.1.5)*
+### 6. Raw LDAP browser panel (read-only first cut)  *(DONE in 0.1.5)*
 - New "Raw LDAP" entry in the sidebar nav, under "Computers".
 - Model: `model/sbv-ldap-node.{h,c}` (`SbvLdapNode` GObject — DN, label,
   lazy children store, loaded flag, raw attrs hashtable).
@@ -107,21 +236,23 @@ can pick it up later without re-litigating decisions.
   pane that renders the selected entry's attributes using the same
   raw-attrs row format as the other panels.
 - Follow-ups:
-  - *(DONE — 0.1.8)* Sort children alphabetically — `children_thread`
+  - *(DONE in 0.1.8)* Sort children alphabetically — `children_thread`
     now sorts the `GListStore<SbvLdapNode>` by label (case-insensitive
     `g_utf8_collate`) before returning.
-  - *(DONE — 0.1.9)* Don't show expander arrow for non-container
+  - *(DONE in 0.1.9)* Don't show expander arrow for non-container
     entries — `SbvLdapNode` gained a tristate `has_children` field
     populated from the DC's `hasSubordinates` operational attribute
     (requested explicitly alongside `*` since it's operational).
     `create_child_model` returns NULL for known leaves so GTK marks
     them non-expandable. Unknown nodes still get an expander.
-  - Arbitrary LDAP filter search box. *(open)*
-  - Per-attribute add/modify/delete (editable mode). *(open)*
+  - *(DONE in 0.1.12)* Arbitrary LDAP filter search box. Saved queries
+    are tracked under R7.
+  - *(DONE in 0.1.12)* Per-attribute add/modify/delete (editable mode).
+    Type-aware editors are tracked under R6.
 
 ## Mail-enabled objects
 
-### 9. Contacts  *(DONE — 0.3.0)*
+### 9. Contacts  *(DONE in 0.3.0)*
 - Backend: `backend/sbv-contacts-backend.{h,c}` —
   `sbv_contacts_list_async/finish`, `sbv_contacts_create_async/finish`,
   `sbv_contacts_delete_async/finish`, `sbv_contacts_update_async/finish`.
@@ -133,7 +264,7 @@ can pick it up later without re-litigating decisions.
 - Create dialog `ui/sbv-create-contact-dialog.{h,c}`: given/sn, mail, phone,
   container DN (defaults to `CN=Users,<base>`).
 
-### 10. Mail-enable groups (distribution lists)  *(open)*
+### 10. Mail-enable groups (distribution lists)  *(deferred, see roadmap)*
 - Backend: extend `sbv_groups_update_async` to handle mail attributes
   (mail, proxyAddresses, displayName).
 - UI: "Mail" section in group detail pane with editable mail and
@@ -143,7 +274,7 @@ can pick it up later without re-litigating decisions.
 
 ## Bulk operations
 
-### 11. Bulk enable/disable and password reset  *(open)*
+### 11. Bulk enable/disable and password reset  *(moved to R8)*
 - Extend users/computers list views with checkbox selection mode.
 - Bulk action buttons: "Enable Selected", "Disable Selected",
   "Reset Password for Selected".
@@ -154,7 +285,7 @@ can pick it up later without re-litigating decisions.
 
 ## Kerberos principals
 
-### 13. Computer SPN management  *(DONE — 0.1.11)*
+### 13. Computer SPN management  *(DONE in 0.1.11)*
 - Backend: `sbv_computers_set_spn_async/finish` issues a single
   `LDAP_MOD_REPLACE` against `servicePrincipalName`. Empty list collapses
   to an attribute delete.
@@ -171,7 +302,7 @@ can pick it up later without re-litigating decisions.
 
 ## Search and filtering
 
-### 12. Advanced search / filtering  *(open)*
+### 12. Advanced search / filtering  *(moved to R2)*
 - Add search box to users/groups/computers panels.
 - Filters: enabled/disabled, password age, stale computers (no logon
   in N days), missing DNS registration.
@@ -181,7 +312,7 @@ can pick it up later without re-litigating decisions.
 
 ## Connection management
 
-### 8. Edit connection profiles after creation  *(DONE — 0.1.6)*
+### 8. Edit connection profiles after creation  *(DONE in 0.1.6)*
 - New `sbv_edit_dialog_new` reuses the connect-dialog UI in "save without
   connecting" mode (title "Edit Connection", action button "Save").
 - Pencil icon (`document-edit-symbolic`, flat) added at the trailing edge
@@ -199,7 +330,7 @@ can pick it up later without re-litigating decisions.
 
 ## UI visibility / inspection
 
-### 7. Show the active connection's UID/GID ranges in the UI  *(DONE — 0.1.7)*
+### 7. Show the active connection's UID/GID ranges in the UI  *(DONE in 0.1.7)*
 - Add/Edit Connection dialog gained a collapsible "POSIX UID/GID ranges"
   section with editable spinners for uid-min/uid-max/gid-min/gid-max.
   0 = "use default", which translates to `-1` in the profile so the
@@ -214,18 +345,18 @@ can pick it up later without re-litigating decisions.
   into a new window-level status bar that also shows server and
   principal — see "Status bar" item below.)*
 - Deferred follow-ups:
-  - *(DONE — 0.2.1)* "Probe DC" button now performs a bound idmap
+  - *(DONE in 0.2.1)* "Probe DC" button now performs a bound idmap
     read in addition to the anonymous RootDSE summary. `sbv-probe`
     grew an optional bind step (Kerberos or simple, mirroring
     `sbv-connection`) that opens a fresh handle, binds with the
     dialog's profile + password, and queries the SFU30 idmap location
     directly — no shared connection borrowing needed. Results render
     inline in the existing probe frame.
-  - An "About this connection" sidebar entry / popover. *(open)*
+  - *(DONE in 0.1.12)* "About this connection" popover.
 
 ## Window chrome
 
-### Status bar  *(DONE — 0.1.10)*
+### Status bar  *(DONE in 0.1.10)*
 - Window-level status bar at the bottom shows the active connection's
   server (`host:port`), authentication mode (Kerberos vs simple-bind
   DN), and the resolved POSIX UID/GID range with source attribution.
@@ -233,6 +364,14 @@ can pick it up later without re-litigating decisions.
   `sbv_idmap_hints_query_async` once per connect.
 
 ## Bugs
+
+### ~~Unix home directory written to the Windows home attribute~~ *(DONE in 0.3.1)*
+- The Unix attributes section read and wrote `homeDirectory`, the Windows
+  home folder. The RFC2307 attribute in AD is `unixHomeDirectory`, which
+  winbind and sssd read.
+- Fix: the users backend now uses `unixHomeDirectory`. The model accessors
+  are renamed to `sbv_user_{get,set}_unix_home_dir` so R5 can add the
+  Windows home folder without a clash.
 
 ### ~~Bogus `ekm` / `org.ekm` identity~~ *(DONE)*
 - Renamed to `au.com.codefoundation.Sambervise` across gschema
@@ -270,9 +409,8 @@ can pick it up later without re-litigating decisions.
 
 ## Open questions / deferred
 
-- ~~About page (already in `todo`)~~ *(DONE — 0.1.9: hamburger menu in
+- ~~About page (already in `todo`)~~ *(DONE in 0.1.9: hamburger menu in
   header bar opens an `AdwAboutWindow`.)*
-- Krb default-ticket indication in profiles list (already in `todo`)
+- Krb default-ticket indication in profiles list. *(open, not on the roadmap)*
 - Should delete operations also offer a "move to recycle bin" path on AD DCs
-  that have the AD Recycle Bin feature enabled? Decide once basic delete
-  lands.
+  that have the AD Recycle Bin feature enabled? Decide as part of R18.
