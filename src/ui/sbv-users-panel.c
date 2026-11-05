@@ -280,7 +280,7 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
   g_free (gid_str);
 
   const char *shell = sbv_user_get_login_shell (user);
-  const char *home  = sbv_user_get_home_dir    (user);
+  const char *home  = sbv_user_get_unix_home_dir (user);
   const char *gecos = sbv_user_get_gecos       (user);
   gtk_editable_set_text (GTK_EDITABLE (self->rfc_shell_entry), shell ? shell : "");
   gtk_editable_set_text (GTK_EDITABLE (self->rfc_home_entry),  home  ? home  : "");

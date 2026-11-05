@@ -1,3 +1,9 @@
+sambervise (0.3.1) unstable; urgency=medium
+
+  * Store the Unix home directory in unixHomeDirectory, not homeDirectory.
+
+ -- Edward Murrell <edward@murrell.co.nz>  Fri, 06 Nov 2026 10:20:28 +1100
+
 sambervise (0.3.0) unstable; urgency=medium
 
   * Release 0.3.0: contacts panel.

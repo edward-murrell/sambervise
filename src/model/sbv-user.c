@@ -18,7 +18,7 @@ struct _SbvUser {
   gint        uid_number;   /* -1 = not present */
   gint        gid_number;   /* -1 = not present */
   char       *login_shell;
-  char       *home_dir;
+  char       *unix_home_dir;
   char       *gecos;
   /* Raw LDAP attribute dump — char* → GStrv, owned */
   GHashTable *ldap_attrs;
@@ -39,7 +39,7 @@ sbv_user_finalize (GObject *object)
   g_free (self->email);
   g_free (self->description);
   g_free (self->login_shell);
-  g_free (self->home_dir);
+  g_free (self->unix_home_dir);
   g_free (self->gecos);
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   G_OBJECT_CLASS (sbv_user_parent_class)->finalize (object);
@@ -90,13 +90,13 @@ void sbv_user_set_account_expires (SbvUser *self, gint64      v) { self->account
 void sbv_user_set_uid_number      (SbvUser *self, gint        v) { self->uid_number      = v; }
 void sbv_user_set_gid_number      (SbvUser *self, gint        v) { self->gid_number      = v; }
 void sbv_user_set_login_shell     (SbvUser *self, const char *v) { g_free (self->login_shell); self->login_shell = g_strdup (v); }
-void sbv_user_set_home_dir        (SbvUser *self, const char *v) { g_free (self->home_dir);    self->home_dir    = g_strdup (v); }
+void sbv_user_set_unix_home_dir   (SbvUser *self, const char *v) { g_free (self->unix_home_dir); self->unix_home_dir = g_strdup (v); }
 void sbv_user_set_gecos           (SbvUser *self, const char *v) { g_free (self->gecos);       self->gecos       = g_strdup (v); }
 
 gint        sbv_user_get_uid_number  (SbvUser *self) { return self->uid_number; }
 gint        sbv_user_get_gid_number  (SbvUser *self) { return self->gid_number; }
 const char *sbv_user_get_login_shell (SbvUser *self) { return self->login_shell; }
-const char *sbv_user_get_home_dir    (SbvUser *self) { return self->home_dir; }
+const char *sbv_user_get_unix_home_dir (SbvUser *self) { return self->unix_home_dir; }
 const char *sbv_user_get_gecos       (SbvUser *self) { return self->gecos; }
 
 GHashTable *sbv_user_get_ldap_attrs  (SbvUser *self) { return self->ldap_attrs; }

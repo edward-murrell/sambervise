@@ -37,7 +37,7 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
     "mail", "description", "userAccountControl",
     "pwdLastSet", "accountExpires",
     /* RFC2307 / POSIX */
-    "uidNumber", "gidNumber", "loginShell", "homeDirectory", "gecos",
+    "uidNumber", "gidNumber", "loginShell", "unixHomeDirectory", "gecos",
     NULL
   };
 
@@ -117,9 +117,9 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
       if (bv && bv[0]) setter (user, bv[0]->bv_val); \
       ldap_value_free_len (bv);
 
-      GET_STR_U ("loginShell",     sbv_user_set_login_shell)
-      GET_STR_U ("homeDirectory",  sbv_user_set_home_dir)
-      GET_STR_U ("gecos",          sbv_user_set_gecos)
+      GET_STR_U ("loginShell",        sbv_user_set_login_shell)
+      GET_STR_U ("unixHomeDirectory", sbv_user_set_unix_home_dir)
+      GET_STR_U ("gecos",             sbv_user_set_gecos)
 
 #undef GET_STR_U
 
@@ -623,7 +623,7 @@ typedef struct {
   gint           uid_number;
   gint           gid_number;
   char          *login_shell;
-  char          *home_dir;
+  char          *unix_home_dir;
   char          *gecos;
 } UnixAttrsData;
 
@@ -632,7 +632,7 @@ unix_attrs_data_free (UnixAttrsData *d)
 {
   g_free (d->dn);
   g_free (d->login_shell);
-  g_free (d->home_dir);
+  g_free (d->unix_home_dir);
   g_free (d->gecos);
   g_free (d);
 }
@@ -687,9 +687,9 @@ set_unix_attrs_thread (GTask *task, gpointer source, gpointer task_data,
   } \
   modp[i] = &mods[i]; i++;
 
-  STR_MOD ("loginShell",    d->login_shell)
-  STR_MOD ("homeDirectory", d->home_dir)
-  STR_MOD ("gecos",         d->gecos)
+  STR_MOD ("loginShell",        d->login_shell)
+  STR_MOD ("unixHomeDirectory", d->unix_home_dir)
+  STR_MOD ("gecos",             d->gecos)
 #undef STR_MOD
 #undef N_UNIX_MODS
 
@@ -712,7 +712,7 @@ sbv_users_set_unix_attrs_async (SbvConnection       *conn,
                                  gint                 uid_number,
                                  gint                 gid_number,
                                  const char          *login_shell,
-                                 const char          *home_dir,
+                                 const char          *unix_home_dir,
                                  const char          *gecos,
                                  GCancellable        *cancellable,
                                  GAsyncReadyCallback  callback,
@@ -724,7 +724,7 @@ sbv_users_set_unix_attrs_async (SbvConnection       *conn,
   d->uid_number  = uid_number;
   d->gid_number  = gid_number;
   d->login_shell = g_strdup (login_shell);
-  d->home_dir    = g_strdup (home_dir);
+  d->unix_home_dir = g_strdup (unix_home_dir);
   d->gecos       = g_strdup (gecos);
 
   GTask *task = g_task_new (conn, cancellable, callback, user_data);

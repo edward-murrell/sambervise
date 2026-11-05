@@ -5,6 +5,18 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-11-06
+
+### Fixed
+- Users panel: the Unix "Home Directory" field now reads and writes
+  `unixHomeDirectory`, the RFC2307 attribute that winbind and sssd use.
+  It previously used `homeDirectory`, which is the Windows home folder.
+  Linux clients ignored the path, and saving it overwrote the
+  user's Windows home share. Users edited with earlier versions may
+  have a Unix path in `homeDirectory` and an empty Unix home field.
+  Check `homeDirectory` in the Raw LDAP browser and move the path to
+  the Unix field if needed.
+
 ## [0.3.0] - 2026-05-25
 
 ### Added

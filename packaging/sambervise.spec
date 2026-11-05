@@ -55,5 +55,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Fri Nov 06 2026 Edward Murrell <edward@murrell.co.nz> - 0.3.1-1
+- Store the Unix home directory in unixHomeDirectory, not homeDirectory.
+
 * Tue Nov 03 2026 Edward Murrell <edward@murrell.co.nz> - 0.3.0-1
 - Native RPM packaging.
