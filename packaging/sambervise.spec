@@ -58,6 +58,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 * Sun Nov 08 2026 Edward Murrell <edward@murrell.co.nz> - 0.5.0-1
 - Add the Windows Profile section to users: profile path, logon script,
   home folder and home drive.
+- Add a Refresh button (F5) that reloads from the DC and discards
+  unsaved edits.
 - Fix operations hanging after the DC connection dropped.
 
 * Sun Nov 08 2026 Edward Murrell <edward@murrell.co.nz> - 0.4.0-1

@@ -10,5 +10,6 @@
     <file alias="scalable/actions/emblem-ok-symbolic.svg">icons/scalable/actions/emblem-ok-symbolic.svg</file>
     <file alias="scalable/actions/media-record-symbolic.svg">icons/scalable/actions/media-record-symbolic.svg</file>
     <file alias="scalable/actions/folder-symbolic.svg">icons/scalable/actions/folder-symbolic.svg</file>
+    <file alias="scalable/actions/view-refresh-symbolic.svg">icons/scalable/actions/view-refresh-symbolic.svg</file>
   </gresource>
 </gresources>

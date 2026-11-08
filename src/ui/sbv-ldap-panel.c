@@ -289,8 +289,9 @@ update_save_sensitive (SbvLdapPanel *self)
 
 /* ── Save ──────────────────────────────────────────────────────────────── */
 
-/* Refresh-attrs completion: replace loaded_attrs with the DC's view and
- * rebuild rows so the editor mirrors what's actually persisted. */
+/* Refresh-attrs completion, after a save or a manual refresh: replace
+ * loaded_attrs with the DC's view and rebuild rows so the editor mirrors
+ * what's actually persisted. */
 static void
 on_attrs_refreshed_after_save (GObject *source, GAsyncResult *result,
                                 gpointer user_data)
@@ -783,6 +784,17 @@ sbv_ldap_panel_load (SbvLdapPanel *self, SbvConnection *conn)
 
   g_object_unref (root);
   gtk_stack_set_visible_child_name (GTK_STACK (self->outer_stack), "split");
+}
+
+/* Re-reads the open entry's attributes from the DC and rebuilds the editor,
+ * dropping unsaved edits. The tree and search results are left alone. */
+void
+sbv_ldap_panel_refresh (SbvLdapPanel *self)
+{
+  if (!self->conn || !self->loaded_dn) return;
+  gtk_widget_set_visible (self->save_error, FALSE);
+  sbv_ldap_browse_attrs_async (self->conn, self->loaded_dn, NULL,
+                                on_attrs_refreshed_after_save, self);
 }
 
 /* ── Paned position ────────────────────────────────────────────────────── */

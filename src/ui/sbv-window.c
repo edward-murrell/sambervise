@@ -407,6 +407,25 @@ on_directory_changed (SbvOusPanel *panel, gpointer user_data)
   sbv_ldap_panel_load      (self->ldap_panel,      self->conn);
 }
 
+/* "win.refresh" (header button, F5, Ctrl+R): re-read every panel from the
+ * DC. Each panel keeps its selection and drops unsaved edits. The Raw LDAP
+ * panel re-reads the open entry and keeps its tree. */
+static void
+on_refresh_action (GtkWidget *widget, const char *action_name, GVariant *param)
+{
+  (void) action_name;
+  (void) param;
+  SbvWindow *self = SBV_WINDOW (widget);
+  if (!self->conn) return;
+  sbv_users_panel_load     (self->users_panel,     self->conn);
+  sbv_groups_panel_load    (self->groups_panel,    self->conn);
+  sbv_computers_panel_load (self->computers_panel, self->conn);
+  sbv_contacts_panel_load  (self->contacts_panel,  self->conn);
+  sbv_ous_panel_load       (self->ous_panel,       self->conn);
+  sbv_ldap_panel_refresh   (self->ldap_panel);
+  sbv_window_show_toast (self, "Reloaded from the server");
+}
+
 /* ── Public API ─────────────────────────────────────────────────────────── */
 
 void
@@ -430,6 +449,7 @@ sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profi
   gtk_widget_set_visible (GTK_WIDGET (self->nav_list), TRUE);
 
   rebuild_profiles_list (self);
+  gtk_widget_action_set_enabled (GTK_WIDGET (self), "win.refresh", TRUE);
 
   gtk_stack_set_visible_child_name (self->content_stack, "users");
   gtk_list_box_select_row (self->nav_list, self->nav_users_row);
@@ -485,12 +505,19 @@ sbv_window_class_init (SbvWindowClass *klass)
   gtk_widget_class_bind_template_child (wc, SbvWindow, status_server_label);
   gtk_widget_class_bind_template_child (wc, SbvWindow, status_principal_label);
   gtk_widget_class_bind_template_child (wc, SbvWindow, status_idmap_label);
+
+  gtk_widget_class_install_action (wc, "win.refresh", NULL, on_refresh_action);
+  gtk_widget_class_add_binding_action (wc, GDK_KEY_F5, 0, "win.refresh", NULL);
+  gtk_widget_class_add_binding_action (wc, GDK_KEY_r, GDK_CONTROL_MASK,
+                                       "win.refresh", NULL);
 }
 
 static void
 sbv_window_init (SbvWindow *self)
 {
   gtk_widget_init_template (GTK_WIDGET (self));
+  /* Nothing to reload until a connection is made. */
+  gtk_widget_action_set_enabled (GTK_WIDGET (self), "win.refresh", FALSE);
 
   self->users_panel     = SBV_USERS_PANEL     (sbv_users_panel_new ());
   self->groups_panel    = SBV_GROUPS_PANEL    (sbv_groups_panel_new ());
