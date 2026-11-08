@@ -1,4 +1,5 @@
 #include "sbv-users-panel.h"
+#include "sbv-move-dialog.h"
 #include "sbv-create-user-dialog.h"
 #include "../backend/sbv-users-backend.h"
 #include "../backend/sbv-collisions.h"
@@ -1310,6 +1311,34 @@ on_rfc_save_clicked (GtkButton *btn, gpointer user_data)
                                    NULL, on_rfc_save_done, self);
 }
 
+/* ── Move ───────────────────────────────────────────────────────────────── */
+
+/* Move-dialog completion: reload so the list and DN show the new location;
+ * reselect it by its new DN. */
+static void
+on_moved (SbvConnection *conn, const char *new_dn, gpointer user_data)
+{
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  g_free (self->pending_select_dn);
+  self->pending_select_dn = g_strdup (new_dn);
+  sbv_users_panel_load (self, conn);
+}
+
+/* "Move…" button beside the DN: pick a new OU or container for the
+ * selected user. */
+static void
+on_move_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  if (!self->conn || !self->selected_user) return;
+  GtkWidget *parent = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  sbv_move_dialog_show (parent ? GTK_WINDOW (parent) : NULL, self->conn,
+                        sbv_user_get_dn (self->selected_user),
+                        sbv_user_get_sam (self->selected_user),
+                        on_moved, self);
+}
+
 /* ── GObject init ───────────────────────────────────────────────────────── */
 
 static void
@@ -1479,8 +1508,16 @@ sbv_users_panel_init (SbvUsersPanel *self)
     gtk_label_set_ellipsize (GTK_LABEL (self->dn_label), PANGO_ELLIPSIZE_MIDDLE);
     gtk_label_set_selectable (GTK_LABEL (self->dn_label), TRUE);
     gtk_widget_add_css_class (self->dn_label, "monospace");
-    gtk_box_append (GTK_BOX (form),
-                    make_field_row ("DN", self->dn_label));
+    {
+      GtkWidget *dn_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      gtk_widget_set_hexpand (self->dn_label, TRUE);
+      gtk_box_append (GTK_BOX (dn_box), self->dn_label);
+      GtkWidget *move_btn = gtk_button_new_with_label ("Move…");
+      gtk_widget_set_tooltip_text (move_btn, "Move to another OU or container");
+      g_signal_connect (move_btn, "clicked", G_CALLBACK (on_move_clicked), self);
+      gtk_box_append (GTK_BOX (dn_box), move_btn);
+      gtk_box_append (GTK_BOX (form), make_field_row ("DN", dn_box));
+    }
 
     self->sam_label = gtk_label_new ("");
     gtk_label_set_xalign (GTK_LABEL (self->sam_label), 0);

@@ -16,6 +16,7 @@ add_custom_command(
             ${CMAKE_SOURCE_DIR}/data/ui/connect-dialog.ui
             ${CMAKE_SOURCE_DIR}/data/icons/scalable/actions/document-edit-symbolic.svg
             ${CMAKE_SOURCE_DIR}/data/icons/scalable/actions/view-list-bullet-symbolic.svg
+            ${CMAKE_SOURCE_DIR}/data/icons/scalable/actions/folder-symbolic.svg
     COMMENT "Compiling GResources"
 )
 
@@ -32,6 +33,7 @@ add_executable(sambervise
     model/sbv-contact.c
     model/sbv-profile.c
     model/sbv-ldap-node.c
+    model/sbv-ou.c
     backend/sbv-connection.c
     backend/sbv-dns.c
     backend/sbv-profiles.c
@@ -43,6 +45,8 @@ add_executable(sambervise
     backend/sbv-collisions.c
     backend/sbv-ldap-browse.c
     backend/sbv-probe.c
+    backend/sbv-dn.c
+    backend/sbv-ou-backend.c
     ui/sbv-window.c
     ui/sbv-connect-dialog.c
     ui/sbv-password-dialog.c
@@ -55,6 +59,10 @@ add_executable(sambervise
     ui/sbv-create-computer-dialog.c
     ui/sbv-create-contact-dialog.c
     ui/sbv-ldap-panel.c
+    ui/sbv-ou-row.c
+    ui/sbv-ous-panel.c
+    ui/sbv-create-ou-dialog.c
+    ui/sbv-move-dialog.c
     ${GRESOURCE_C}
 )
 

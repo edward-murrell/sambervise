@@ -5,6 +5,30 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-08
+
+### Added
+- OUs panel: new "OUs" sidebar entry (between Contacts and Raw LDAP)
+  that lists the domain root and every OU and container in tree order.
+  System containers hidden from ADUC's default view (such as
+  `CN=System`) are left out, along with everything beneath them. Select an entry to see its DN, parent and
+  raw attributes.
+- Create OUs with the "+" button. The new OU goes inside the selected
+  container, or at the domain root when nothing is selected.
+- Rename OUs and edit their description. Containers such as `CN=Users`
+  allow description changes only.
+- Move OUs to a new parent, and delete empty OUs with a type-to-confirm
+  prompt. Built-in objects such as the Domain Controllers OU can't be
+  renamed, moved or deleted.
+- "Move…" button beside the DN on users, groups, computers and
+  contacts. It opens a searchable list of OUs and containers and moves
+  the object there.
+- Renaming, moving or deleting an OU reloads the other panels, because
+  the DNs of objects beneath it change.
+
+### Fixed
+- The app no longer crashes when closing the window.
+
 ## [0.3.1] - 2026-11-06
 
 ### Fixed

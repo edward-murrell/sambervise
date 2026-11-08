@@ -55,6 +55,11 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Sun Nov 08 2026 Edward Murrell <edward@murrell.co.nz> - 0.4.0-1
+- Add the OUs panel: create, rename, move and delete organisational units.
+- Move users, groups, computers and contacts between containers.
+- Fix a crash when closing the window.
+
 * Fri Nov 06 2026 Edward Murrell <edward@murrell.co.nz> - 0.3.1-1
 - Store the Unix home directory in unixHomeDirectory, not homeDirectory.
 

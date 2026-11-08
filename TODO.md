@@ -14,14 +14,30 @@ Bug fixes ship as a patch bump.
 
 ## Phase 1: Finish the ADUC basics
 
-### R1. OU management and moving objects  *(open)*
-- Create, rename and delete OUs.
-- Move users, groups, computers and contacts between containers with
-  `ldap_rename_s` and a new superior DN. The user and contact backends
-  already call `ldap_rename_s` for CN changes, but always pass a NULL
-  new superior.
-- GPO links (R15), delegation (R17) and move-to-OU in bulk (R8) build on
-  this.
+### R1. OU management and moving objects  *(DONE in 0.4.0)*
+- Backend: `backend/sbv-ou-backend.{h,c}` lists, creates, updates
+  (rename + description), deletes and moves. `sbv_ou_move_object_async`
+  works for any object and uses `ldap_rename_s` with a new superior.
+- DN helpers: `backend/sbv-dn.{h,c}` for RFC 4514 escaping, splitting at
+  unescaped commas, ancestry checks and display paths. Tested in
+  `tests/test-dn.c`.
+- Model: `model/sbv-ou.{h,c}` (`SbvOu`, kind OU / container / domain,
+  critical flag, tree-order comparator). Tested in `tests/test-ous.c`.
+- UI: "OUs" sidebar panel, `ui/sbv-create-ou-dialog`, and a shared
+  `ui/sbv-move-dialog` used by the OU panel and the "Move…" button on
+  users, groups, computers and contacts.
+- The list shows OUs and containers without `showInAdvancedViewOnly`,
+  matching ADUC's default view. Only non-critical OUs can be renamed,
+  moved or deleted. Delete is refused for non-empty OUs.
+- The OU panel emits "directory-changed" after a rename, move or delete,
+  and the window reloads the other panels.
+- Follow-ups (open):
+  - Container picker in the create dialogs instead of a typed DN.
+  - The existing user and contact rename code splits DNs on the first
+    comma, so a CN containing an escaped comma renames wrongly. Switch it
+    to `sbv_dn_split`.
+  - GPO links (R15), delegation (R17) and move-to-OU in bulk (R8) build on
+    this.
 
 ### R2. Search box and basic filters  *(open, replaces #12)*
 - Every panel already has a search box that filters the loaded list.

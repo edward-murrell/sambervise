@@ -1,4 +1,5 @@
 #include "sbv-groups-panel.h"
+#include "sbv-move-dialog.h"
 #include "sbv-create-group-dialog.h"
 #include "../backend/sbv-groups-backend.h"
 #include "../backend/sbv-users-backend.h"
@@ -1268,6 +1269,32 @@ make_info_row (const char *label_text, GtkWidget **out_label)
   return box;
 }
 
+/* ── Move ───────────────────────────────────────────────────────────────── */
+
+/* Move-dialog completion: reload so the list and DN show the new location;
+ * selection follows sAMAccountName, which a move keeps. */
+static void
+on_moved (SbvConnection *conn, const char *new_dn, gpointer user_data)
+{
+  (void) new_dn;
+  sbv_groups_panel_load (SBV_GROUPS_PANEL (user_data), conn);
+}
+
+/* "Move…" button beside the DN: pick a new OU or container for the
+ * selected group. */
+static void
+on_move_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
+  if (!self->conn || !self->selected_group) return;
+  GtkWidget *parent = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  sbv_move_dialog_show (parent ? GTK_WINDOW (parent) : NULL, self->conn,
+                        sbv_group_get_dn (self->selected_group),
+                        sbv_group_get_sam (self->selected_group),
+                        on_moved, self);
+}
+
 /* ── GObject init ───────────────────────────────────────────────────────── */
 
 static void
@@ -1399,6 +1426,10 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
       gtk_label_set_selectable (GTK_LABEL (self->detail_dn), TRUE);
       gtk_label_set_ellipsize  (GTK_LABEL (self->detail_dn), PANGO_ELLIPSIZE_MIDDLE);
       gtk_widget_add_css_class (self->detail_dn, "monospace");
+      GtkWidget *move_btn = gtk_button_new_with_label ("Move…");
+      gtk_widget_set_tooltip_text (move_btn, "Move to another OU or container");
+      g_signal_connect (move_btn, "clicked", G_CALLBACK (on_move_clicked), self);
+      gtk_box_append (GTK_BOX (dn_row), move_btn);
       gtk_box_append (GTK_BOX (detail_box), dn_row);
     }
     gtk_box_append (GTK_BOX (detail_box),

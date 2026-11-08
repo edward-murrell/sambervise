@@ -9,6 +9,8 @@ Sambervise connects to remote DCs over LDAP/LDAPS. It has no effect on the local
 - **User management** — browse users, edit names and contact details, enable/disable accounts, reset passwords, and configure password policy (force change at next logon, never expires, account expiry)
 - **Group management** — browse groups, view membership, add and remove members
 - **Computer management** — browse computer accounts, view OS info and Service Principal Names, edit description and DNS hostname, enable/disable accounts
+- **Contact management** — browse, create, edit and delete mail-enabled contacts
+- **OU management** — create, rename, move and delete organisational units, and move users, groups, computers and contacts between containers
 - **Multiple connection profiles** — save and switch between named connections; profiles are stored in `~/.config/sambervise/connections.ini`
 - **Authentication** — Kerberos/GSSAPI (uses existing `kinit` credentials) or simple bind with password
 - **DC discovery** — finds Domain Controllers automatically via DNS SRV records (`_ldap._tcp.dc._msdcs.<domain>`)

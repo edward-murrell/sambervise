@@ -894,7 +894,9 @@ sbv_ldap_panel_init (SbvLdapPanel *self)
 
     /* Tree page */
     self->root_store = g_list_store_new (SBV_TYPE_LDAP_NODE);
-    self->tree_model = gtk_tree_list_model_new (G_LIST_MODEL (self->root_store),
+    /* The tree model takes ownership of its root. Keep our own reference
+     * so finalize can release root_store safely. */
+    self->tree_model = gtk_tree_list_model_new (g_object_ref (G_LIST_MODEL (self->root_store)),
                                                   FALSE, FALSE,
                                                   create_child_model,
                                                   self, NULL);

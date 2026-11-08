@@ -1,3 +1,11 @@
+sambervise (0.4.0) unstable; urgency=medium
+
+  * Add the OUs panel: create, rename, move and delete organisational units.
+  * Move users, groups, computers and contacts between containers.
+  * Fix a crash when closing the window.
+
+ -- Edward Murrell <edward@murrell.co.nz>  Sun, 08 Nov 2026 20:12:33 +1100
+
 sambervise (0.3.1) unstable; urgency=medium
 
   * Store the Unix home directory in unixHomeDirectory, not homeDirectory.
