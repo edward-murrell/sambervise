@@ -119,4 +119,20 @@ gboolean sbv_users_set_unix_attrs_finish (SbvConnection *conn,
                                            GAsyncResult  *result,
                                            GError       **error);
 
+/* Set the Windows profile attributes: homeDirectory, homeDrive, scriptPath
+ * and profilePath. Pass "" or NULL to remove one. homeDrive should already
+ * be in "H:" form (see sbv_user_normalise_home_drive). */
+void     sbv_users_set_profile_attrs_async  (SbvConnection       *conn,
+                                             SbvUser             *user,
+                                             const char          *home_directory,
+                                             const char          *home_drive,
+                                             const char          *script_path,
+                                             const char          *profile_path,
+                                             GCancellable        *cancellable,
+                                             GAsyncReadyCallback  callback,
+                                             gpointer             user_data);
+gboolean sbv_users_set_profile_attrs_finish (SbvConnection *conn,
+                                             GAsyncResult  *result,
+                                             GError       **error);
+
 G_END_DECLS

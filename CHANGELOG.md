@@ -5,6 +5,17 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - Unreleased
+
+### Added
+- Windows Profile section on users: profile path, logon script, home
+  folder and home drive. Leave a field empty to clear it. The home drive
+  takes a single letter, such as `H:`, and needs a home folder.
+
+### Fixed
+- Saving Unix attributes or group changes after the DC connection
+  dropped could leave later operations stuck until restart.
+
 ## [0.4.0] - 2026-11-08
 
 ### Added

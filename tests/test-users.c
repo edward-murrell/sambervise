@@ -70,6 +70,52 @@ test_user_refcount (void)
   g_object_unref (user);
 }
 
+/* Windows profile fields default to NULL and store copies. */
+static void
+test_user_profile (void)
+{
+  SbvUser *user = sbv_user_new ();
+
+  g_assert_null (sbv_user_get_home_directory (user));
+  g_assert_null (sbv_user_get_home_drive     (user));
+  g_assert_null (sbv_user_get_script_path    (user));
+  g_assert_null (sbv_user_get_profile_path   (user));
+
+  sbv_user_set_home_directory (user, "\\\\fs\\home\\jsmith");
+  sbv_user_set_home_drive     (user, "H:");
+  sbv_user_set_script_path    (user, "logon.bat");
+  sbv_user_set_profile_path   (user, "\\\\fs\\profiles\\jsmith");
+
+  g_assert_cmpstr (sbv_user_get_home_directory (user), ==, "\\\\fs\\home\\jsmith");
+  g_assert_cmpstr (sbv_user_get_home_drive     (user), ==, "H:");
+  g_assert_cmpstr (sbv_user_get_script_path    (user), ==, "logon.bat");
+  g_assert_cmpstr (sbv_user_get_profile_path   (user), ==, "\\\\fs\\profiles\\jsmith");
+
+  /* The Unix home is a separate attribute. */
+  g_assert_null (sbv_user_get_unix_home_dir (user));
+
+  sbv_user_set_home_drive (user, NULL);
+  g_assert_null (sbv_user_get_home_drive (user));
+  g_object_unref (user);
+}
+
+/* Drive letters are upper-cased with a colon; anything else is rejected. */
+static void
+test_user_home_drive (void)
+{
+  const struct { const char *in; const char *out; } cases[] = {
+    { "H:",   "H:" }, { "h:",  "H:" }, { "h",    "H:" }, { " z: ", "Z:" },
+    { "",     NULL }, { "HH",  NULL }, { "1:",   NULL }, { "H:\\", NULL },
+    { ":",    NULL },
+  };
+  for (gsize i = 0; i < G_N_ELEMENTS (cases); i++) {
+    char *got = sbv_user_normalise_home_drive (cases[i].in);
+    g_assert_cmpstr (got, ==, cases[i].out);
+    g_free (got);
+  }
+  g_assert_null (sbv_user_normalise_home_drive (NULL));
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -77,5 +123,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/user/properties", test_user_properties);
   g_test_add_func ("/user/rfc2307",    test_user_rfc2307);
   g_test_add_func ("/user/refcount",   test_user_refcount);
+  g_test_add_func ("/user/profile",    test_user_profile);
+  g_test_add_func ("/user/home-drive", test_user_home_drive);
   return g_test_run ();
 }

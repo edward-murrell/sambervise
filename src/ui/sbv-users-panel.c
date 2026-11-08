@@ -42,6 +42,14 @@ struct _SbvUsersPanel {
   GtkWidget     *sam_label;
   GtkWidget     *enabled_check;
 
+  /* Windows profile (editable) */
+  GtkWidget     *prof_path_entry;
+  GtkWidget     *prof_script_entry;
+  GtkWidget     *prof_home_entry;
+  GtkWidget     *prof_drive_entry;
+  GtkWidget     *prof_save_btn;
+  GtkWidget     *prof_error;
+
   /* RFC2307 / POSIX (editable) */
   GtkWidget     *rfc_uid_entry;
   GtkWidget     *rfc_gid_entry;
@@ -269,6 +277,19 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
     gtk_editable_set_text (GTK_EDITABLE (self->expires_date_entry), "");
   }
   gtk_widget_set_sensitive (self->expires_date_entry, !acct_never);
+
+  /* Windows profile */
+  {
+    const char *pp = sbv_user_get_profile_path   (user);
+    const char *sp = sbv_user_get_script_path    (user);
+    const char *hd = sbv_user_get_home_directory (user);
+    const char *dr = sbv_user_get_home_drive     (user);
+    gtk_editable_set_text (GTK_EDITABLE (self->prof_path_entry),   pp ? pp : "");
+    gtk_editable_set_text (GTK_EDITABLE (self->prof_script_entry), sp ? sp : "");
+    gtk_editable_set_text (GTK_EDITABLE (self->prof_home_entry),   hd ? hd : "");
+    gtk_editable_set_text (GTK_EDITABLE (self->prof_drive_entry),  dr ? dr : "");
+    gtk_widget_set_visible (self->prof_error, FALSE);
+  }
 
   /* RFC2307 / POSIX */
   gint uid = sbv_user_get_uid_number (user);
@@ -1267,6 +1288,77 @@ on_paned_map (GtkWidget *widget, gpointer user_data)
 
 /* ── RFC2307 save ───────────────────────────────────────────────────────── */
 
+/* Shows a profile-section error under its Save button. */
+static void
+show_profile_error (SbvUsersPanel *self, const char *msg)
+{
+  gtk_label_set_text (GTK_LABEL (self->prof_error), msg);
+  gtk_widget_set_visible (self->prof_error, TRUE);
+}
+
+/* Profile save completion: show the error, or reload to pick up the
+ * stored values. */
+static void
+on_profile_save_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  SbvConnection *conn = SBV_CONNECTION (source);
+  GError        *err  = NULL;
+
+  gtk_widget_set_sensitive (self->prof_save_btn, TRUE);
+
+  if (!sbv_users_set_profile_attrs_finish (conn, result, &err)) {
+    show_profile_error (self, err->message);
+    g_error_free (err);
+    return;
+  }
+
+  gtk_widget_set_visible (self->prof_error, FALSE);
+  sbv_users_panel_load (self, conn);
+}
+
+/* Checks the home drive, then writes the four profile attributes. A drive
+ * letter only makes sense with a home folder to map it to. */
+static void
+on_profile_save_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  if (!self->selected_user || !self->conn) return;
+
+  gtk_widget_set_visible (self->prof_error, FALSE);
+
+  char *path   = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->prof_path_entry))));
+  char *script = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->prof_script_entry))));
+  char *home   = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->prof_home_entry))));
+  char *drive_s = g_strstrip (g_strdup (gtk_editable_get_text (GTK_EDITABLE (self->prof_drive_entry))));
+  char *drive  = NULL;
+  gboolean ok  = TRUE;
+
+  if (*drive_s) {
+    drive = sbv_user_normalise_home_drive (drive_s);
+    if (!drive) {
+      show_profile_error (self, "Home drive must be a single letter, such as H:.");
+      ok = FALSE;
+    } else if (!*home) {
+      show_profile_error (self, "A home drive needs a home folder to map to.");
+      ok = FALSE;
+    }
+  }
+
+  if (ok) {
+    gtk_widget_set_sensitive (self->prof_save_btn, FALSE);
+    sbv_users_set_profile_attrs_async (self->conn, self->selected_user,
+                                       home, drive, script, path,
+                                       NULL, on_profile_save_done, self);
+  }
+  g_free (path);
+  g_free (script);
+  g_free (home);
+  g_free (drive_s);
+  g_free (drive);
+}
+
 static void
 on_rfc_save_done (GObject *source, GAsyncResult *result, gpointer user_data)
 {
@@ -1632,6 +1724,65 @@ sbv_users_panel_init (SbvUsersPanel *self)
     gtk_widget_set_visible (self->policy_error, FALSE);
     gtk_box_append (GTK_BOX (policy_btn_box), self->policy_error);
     gtk_box_append (GTK_BOX (form), policy_btn_box);
+
+    /* ── Windows Profile ── */
+    gtk_box_append (GTK_BOX (form),
+                    gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append (GTK_BOX (form), make_section_label ("Windows Profile"));
+
+    self->prof_path_entry = gtk_entry_new ();
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->prof_path_entry),
+                                    "\\\\server\\profiles\\username");
+    gtk_widget_add_css_class (self->prof_path_entry, "monospace");
+    gtk_box_append (GTK_BOX (form), make_field_row ("Profile Path", self->prof_path_entry));
+
+    self->prof_script_entry = gtk_entry_new ();
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->prof_script_entry), "logon.bat");
+    gtk_widget_add_css_class (self->prof_script_entry, "monospace");
+    gtk_box_append (GTK_BOX (form), make_field_row ("Logon Script", self->prof_script_entry));
+
+    self->prof_home_entry = gtk_entry_new ();
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->prof_home_entry),
+                                    "\\\\server\\home\\username");
+    gtk_widget_add_css_class (self->prof_home_entry, "monospace");
+    gtk_box_append (GTK_BOX (form), make_field_row ("Home Folder", self->prof_home_entry));
+
+    self->prof_drive_entry = gtk_entry_new ();
+    gtk_entry_set_placeholder_text (GTK_ENTRY (self->prof_drive_entry), "H:");
+    gtk_entry_set_max_length (GTK_ENTRY (self->prof_drive_entry), 3);
+    gtk_editable_set_width_chars (GTK_EDITABLE (self->prof_drive_entry), 4);
+    gtk_widget_add_css_class (self->prof_drive_entry, "monospace");
+    {
+      GtkWidget *row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      GtkWidget *lbl = gtk_label_new ("Home Drive");
+      gtk_label_set_xalign (GTK_LABEL (lbl), 1);
+      gtk_widget_set_size_request (lbl, 140, -1);
+      gtk_widget_add_css_class (lbl, "dim-label");
+      gtk_box_append (GTK_BOX (row), lbl);
+      gtk_box_append (GTK_BOX (row), self->prof_drive_entry);
+      gtk_box_append (GTK_BOX (form), row);
+    }
+
+    {
+      GtkWidget *prof_btn_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
+      gtk_widget_set_margin_top (prof_btn_box, 4);
+      self->prof_save_btn = gtk_button_new_with_label ("Save Profile");
+      gtk_widget_add_css_class (self->prof_save_btn, "suggested-action");
+      gtk_widget_set_halign (self->prof_save_btn, GTK_ALIGN_START);
+      gtk_widget_set_margin_start (self->prof_save_btn, 148);
+      g_signal_connect (self->prof_save_btn, "clicked",
+                        G_CALLBACK (on_profile_save_clicked), self);
+      gtk_box_append (GTK_BOX (prof_btn_box), self->prof_save_btn);
+
+      self->prof_error = gtk_label_new ("");
+      gtk_label_set_xalign (GTK_LABEL (self->prof_error), 0);
+      gtk_label_set_wrap (GTK_LABEL (self->prof_error), TRUE);
+      gtk_widget_add_css_class (self->prof_error, "error");
+      gtk_widget_set_margin_start (self->prof_error, 148);
+      gtk_widget_set_visible (self->prof_error, FALSE);
+      gtk_box_append (GTK_BOX (prof_btn_box), self->prof_error);
+      gtk_box_append (GTK_BOX (form), prof_btn_box);
+    }
 
     /* ── Unix Attributes (RFC2307) ── */
     gtk_box_append (GTK_BOX (form),

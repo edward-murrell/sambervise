@@ -56,11 +56,11 @@ Bug fixes ship as a patch bump.
   computer panes.
 - Edit membership by modifying each group's `member` attribute.
 
-### R5. Profile fields  *(open)*
-- Home folder (`homeDirectory`), home drive (`homeDrive`), logon script
-  (`scriptPath`) and profile path (`profilePath`).
-- `homeDirectory` is free for this since 0.3.1. The Unix home field now
-  uses `unixHomeDirectory`.
+### R5. Profile fields  *(DONE in 0.5.0)*
+- Done: Windows Profile section on users for `profilePath`,
+  `scriptPath`, `homeDirectory` and `homeDrive`.
+- Open: R9 (copy from template) should copy these, with the username
+  substituted in paths.
 
 ## Phase 2: The escape hatch and bulk work
 

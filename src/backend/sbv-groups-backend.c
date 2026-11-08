@@ -310,6 +310,7 @@ set_group_unix_thread (GTask *task, gpointer source, gpointer task_data,
   LDAP          *ld   = sbv_connection_acquire_ldap (conn);
 
   if (!ld) {
+    sbv_connection_release_ldap (conn);
     g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
                              "Not connected");
     return;

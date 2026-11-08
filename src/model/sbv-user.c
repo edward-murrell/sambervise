@@ -20,6 +20,11 @@ struct _SbvUser {
   char       *login_shell;
   char       *unix_home_dir;
   char       *gecos;
+  /* Windows profile */
+  char       *home_directory;
+  char       *home_drive;
+  char       *script_path;
+  char       *profile_path;
   /* Raw LDAP attribute dump — char* → GStrv, owned */
   GHashTable *ldap_attrs;
 };
@@ -41,6 +46,10 @@ sbv_user_finalize (GObject *object)
   g_free (self->login_shell);
   g_free (self->unix_home_dir);
   g_free (self->gecos);
+  g_free (self->home_directory);
+  g_free (self->home_drive);
+  g_free (self->script_path);
+  g_free (self->profile_path);
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   G_OBJECT_CLASS (sbv_user_parent_class)->finalize (object);
 }
@@ -98,6 +107,31 @@ gint        sbv_user_get_gid_number  (SbvUser *self) { return self->gid_number; 
 const char *sbv_user_get_login_shell (SbvUser *self) { return self->login_shell; }
 const char *sbv_user_get_unix_home_dir (SbvUser *self) { return self->unix_home_dir; }
 const char *sbv_user_get_gecos       (SbvUser *self) { return self->gecos; }
+
+/* Windows profile accessors */
+void sbv_user_set_home_directory  (SbvUser *self, const char *v) { g_free (self->home_directory); self->home_directory = g_strdup (v); }
+void sbv_user_set_home_drive      (SbvUser *self, const char *v) { g_free (self->home_drive);     self->home_drive     = g_strdup (v); }
+void sbv_user_set_script_path     (SbvUser *self, const char *v) { g_free (self->script_path);    self->script_path    = g_strdup (v); }
+void sbv_user_set_profile_path    (SbvUser *self, const char *v) { g_free (self->profile_path);   self->profile_path   = g_strdup (v); }
+const char *sbv_user_get_home_directory (SbvUser *self) { return self->home_directory; }
+const char *sbv_user_get_home_drive     (SbvUser *self) { return self->home_drive; }
+const char *sbv_user_get_script_path    (SbvUser *self) { return self->script_path; }
+const char *sbv_user_get_profile_path   (SbvUser *self) { return self->profile_path; }
+
+/* Accepts "h", "H", "h:" or "H:" (spaces around are ignored) and returns
+ * "H:". Returns NULL for anything else. Caller frees. */
+char *
+sbv_user_normalise_home_drive (const char *drive)
+{
+  if (!drive) return NULL;
+  while (*drive == ' ') drive++;
+  if (!g_ascii_isalpha (drive[0])) return NULL;
+  const char *rest = drive + 1;
+  if (*rest == ':') rest++;
+  while (*rest == ' ') rest++;
+  if (*rest) return NULL;
+  return g_strdup_printf ("%c:", g_ascii_toupper (drive[0]));
+}
 
 GHashTable *sbv_user_get_ldap_attrs  (SbvUser *self) { return self->ldap_attrs; }
 void

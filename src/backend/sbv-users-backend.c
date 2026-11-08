@@ -38,6 +38,8 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
     "pwdLastSet", "accountExpires",
     /* RFC2307 / POSIX */
     "uidNumber", "gidNumber", "loginShell", "unixHomeDirectory", "gecos",
+    /* Windows profile */
+    "homeDirectory", "homeDrive", "scriptPath", "profilePath",
     NULL
   };
 
@@ -120,6 +122,10 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
       GET_STR_U ("loginShell",        sbv_user_set_login_shell)
       GET_STR_U ("unixHomeDirectory", sbv_user_set_unix_home_dir)
       GET_STR_U ("gecos",             sbv_user_set_gecos)
+      GET_STR_U ("homeDirectory",     sbv_user_set_home_directory)
+      GET_STR_U ("homeDrive",         sbv_user_set_home_drive)
+      GET_STR_U ("scriptPath",        sbv_user_set_script_path)
+      GET_STR_U ("profilePath",       sbv_user_set_profile_path)
 
 #undef GET_STR_U
 
@@ -647,6 +653,7 @@ set_unix_attrs_thread (GTask *task, gpointer source, gpointer task_data,
   LDAP          *ld   = sbv_connection_acquire_ldap (conn);
 
   if (!ld) {
+    sbv_connection_release_ldap (conn);
     g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
                              "Not connected");
     return;
@@ -737,6 +744,109 @@ gboolean
 sbv_users_set_unix_attrs_finish (SbvConnection *conn,
                                   GAsyncResult  *result,
                                   GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ── Set Windows profile attributes ──────────────────────────────────────── */
+
+typedef struct {
+  char *dn;
+  char *home_directory;
+  char *home_drive;
+  char *script_path;
+  char *profile_path;
+} ProfileAttrsData;
+
+/* Frees a ProfileAttrsData struct passed via g_task_set_task_data. */
+static void
+profile_attrs_data_free (ProfileAttrsData *d)
+{
+  g_free (d->dn);
+  g_free (d->home_directory);
+  g_free (d->home_drive);
+  g_free (d->script_path);
+  g_free (d->profile_path);
+  g_free (d);
+}
+
+/* Worker: replaces the four profile attributes in one modify. An empty
+ * value removes the attribute. Runs on a GTask thread. */
+static void
+set_profile_attrs_thread (GTask *task, gpointer source, gpointer task_data,
+                          GCancellable *cancellable)
+{
+  (void) cancellable;
+  ProfileAttrsData *d    = task_data;
+  SbvConnection    *conn = SBV_CONNECTION (source);
+  LDAP             *ld   = sbv_connection_acquire_ldap (conn);
+
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  const char *names[]  = { "homeDirectory", "homeDrive", "scriptPath", "profilePath" };
+  const char *values[] = { d->home_directory, d->home_drive, d->script_path, d->profile_path };
+  LDAPMod  mods[4];
+  LDAPMod *modp[5];
+  char    *vslots[4][2];
+
+  memset (mods, 0, sizeof mods);
+  for (int i = 0; i < 4; i++) {
+    mods[i].mod_op   = LDAP_MOD_REPLACE;
+    mods[i].mod_type = (char *) names[i];
+    if (values[i] && *values[i]) {
+      vslots[i][0] = (char *) values[i];
+      vslots[i][1] = NULL;
+      mods[i].mod_values = vslots[i];
+    }
+    modp[i] = &mods[i];
+  }
+  modp[4] = NULL;
+
+  int rc = ldap_modify_ext_s (ld, d->dn, modp, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc != LDAP_SUCCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Failed to set profile attributes: %s",
+                             ldap_err2string (rc));
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+void
+sbv_users_set_profile_attrs_async (SbvConnection       *conn,
+                                   SbvUser             *user,
+                                   const char          *home_directory,
+                                   const char          *home_drive,
+                                   const char          *script_path,
+                                   const char          *profile_path,
+                                   GCancellable        *cancellable,
+                                   GAsyncReadyCallback  callback,
+                                   gpointer             user_data)
+{
+  ProfileAttrsData *d = g_new0 (ProfileAttrsData, 1);
+  d->dn             = g_strdup (sbv_user_get_dn (user));
+  d->home_directory = g_strdup (home_directory);
+  d->home_drive     = g_strdup (home_drive);
+  d->script_path    = g_strdup (script_path);
+  d->profile_path   = g_strdup (profile_path);
+
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+  g_task_set_task_data (task, d, (GDestroyNotify) profile_attrs_data_free);
+  g_task_run_in_thread (task, set_profile_attrs_thread);
+  g_object_unref (task);
+}
+
+gboolean
+sbv_users_set_profile_attrs_finish (SbvConnection *conn,
+                                    GAsyncResult  *result,
+                                    GError       **error)
 {
   (void) conn;
   return g_task_propagate_boolean (G_TASK (result), error);

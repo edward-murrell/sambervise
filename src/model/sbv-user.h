@@ -45,6 +45,19 @@ void        sbv_user_set_gid_number      (SbvUser *self, gint gid);
 void        sbv_user_set_login_shell     (SbvUser *self, const char *shell);
 void        sbv_user_set_unix_home_dir   (SbvUser *self, const char *home);
 void        sbv_user_set_gecos           (SbvUser *self, const char *gecos);
+/* Windows profile: homeDirectory, homeDrive, scriptPath, profilePath.
+ * NULL means the attribute is not present. */
+const char *sbv_user_get_home_directory  (SbvUser *self);
+const char *sbv_user_get_home_drive      (SbvUser *self);
+const char *sbv_user_get_script_path     (SbvUser *self);
+const char *sbv_user_get_profile_path    (SbvUser *self);
+void        sbv_user_set_home_directory  (SbvUser *self, const char *path);
+void        sbv_user_set_home_drive      (SbvUser *self, const char *drive);
+void        sbv_user_set_script_path     (SbvUser *self, const char *path);
+void        sbv_user_set_profile_path    (SbvUser *self, const char *path);
+/* Turns a drive letter such as "h" or "H:" into "H:". Returns NULL when
+ * the text isn't a single letter with an optional colon. Caller frees. */
+char       *sbv_user_normalise_home_drive (const char *drive);
 /* Raw LDAP attributes — GHashTable<char*,GStrv>; takes/returns ownership */
 GHashTable *sbv_user_get_ldap_attrs      (SbvUser *self);
 void        sbv_user_set_ldap_attrs      (SbvUser *self, GHashTable *attrs);
