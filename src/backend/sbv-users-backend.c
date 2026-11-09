@@ -10,8 +10,42 @@
 #define UAC_ACCOUNTDISABLE     0x0002
 #define UAC_NORMAL_ACCOUNT     0x0200
 #define UAC_DONT_EXPIRE_PASSWD 0x10000
+#define UAC_LOCKOUT            0x0010   /* in msDS-User-Account-Control-Computed */
+
+#define WIN_EPOCH_OFFSET  11644473600LL
+#define WIN_TICKS_PER_SEC 10000000LL
 
 /* ── List users ─────────────────────────────────────────────────────────── */
+
+/* Reads the domain's lockoutDuration from the base DN. Returns 0 when it
+ * can't be read, which treats lockouts as lasting until unlocked. Caller
+ * holds the LDAP lock. */
+static gint64
+read_lockout_duration (LDAP *ld, const char *base)
+{
+  char          *attrs[] = { (char *) "lockoutDuration", NULL };
+  struct timeval tv      = { 30, 0 };
+  LDAPMessage   *result  = NULL;
+  gint64         value   = 0;
+
+  int rc = ldap_search_ext_s (ld, base, LDAP_SCOPE_BASE, "(objectClass=*)",
+                               attrs, 0, NULL, NULL, &tv, 1, &result);
+  if (rc == LDAP_SUCCESS) {
+    LDAPMessage *entry = ldap_first_entry (ld, result);
+    struct berval **bv = entry ? ldap_get_values_len (ld, entry, "lockoutDuration") : NULL;
+    if (bv && bv[0]) value = g_ascii_strtoll (bv[0]->bv_val, NULL, 10);
+    ldap_value_free_len (bv);
+  }
+  if (result) ldap_msgfree (result);
+  return value;
+}
+
+/* The current time as a Windows FILETIME (100 ns ticks since 1601). */
+static gint64
+filetime_now (void)
+{
+  return g_get_real_time () * 10 + WIN_EPOCH_OFFSET * WIN_TICKS_PER_SEC;
+}
 
 static void
 list_thread (GTask *task, gpointer source, gpointer task_data,
@@ -31,11 +65,14 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
 
   const char *base   = sbv_connection_get_base_dn (conn);
   const char *filter = "(&(objectClass=user)(!(objectClass=computer)))";
+  gint64 lockout_duration = read_lockout_duration (ld, base);
+  gint64 now              = filetime_now ();
   const char *attrs[] = {
     "distinguishedName", "sAMAccountName",
     "cn", "displayName", "givenName", "sn",
     "mail", "description", "userAccountControl",
     "pwdLastSet", "accountExpires",
+    "lockoutTime", "msDS-User-Account-Control-Computed",
     /* RFC2307 / POSIX */
     "uidNumber", "gidNumber", "loginShell", "unixHomeDirectory", "gecos",
     /* Windows profile */
@@ -89,6 +126,26 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
         sbv_user_set_enabled (user, !(uac & UAC_ACCOUNTDISABLE));
       }
       ldap_value_free_len (bv);
+
+      /* Lockout. Samba's computed UAC flag is authoritative when present,
+       * because it also applies fine-grained password policies. */
+      {
+        gint64 lt = 0;
+        bv = ldap_get_values_len (ld, entry, "lockoutTime");
+        if (bv && bv[0]) lt = g_ascii_strtoll (bv[0]->bv_val, NULL, 10);
+        ldap_value_free_len (bv);
+
+        gint64   end    = sbv_user_lockout_end (lt, lockout_duration, now);
+        gboolean locked = (end != 0);
+        bv = ldap_get_values_len (ld, entry, "msDS-User-Account-Control-Computed");
+        if (bv && bv[0])
+          locked = (g_ascii_strtoll (bv[0]->bv_val, NULL, 10) & UAC_LOCKOUT) != 0;
+        ldap_value_free_len (bv);
+
+        sbv_user_set_lockout_time (user, lt);
+        sbv_user_set_locked_out   (user, locked);
+        sbv_user_set_lockout_end  (user, locked ? end : 0);
+      }
 
       bv = ldap_get_values_len (ld, entry, "pwdLastSet");
       if (bv && bv[0])
@@ -744,6 +801,67 @@ gboolean
 sbv_users_set_unix_attrs_finish (SbvConnection *conn,
                                   GAsyncResult  *result,
                                   GError       **error)
+{
+  (void) conn;
+  return g_task_propagate_boolean (G_TASK (result), error);
+}
+
+/* ── Unlock ─────────────────────────────────────────────────────────────── */
+
+/* Worker: clears a lockout by setting lockoutTime to 0, the only value AD
+ * accepts for it. Runs on a GTask thread; task data is the DN. */
+static void
+unlock_thread (GTask *task, gpointer source, gpointer task_data,
+               GCancellable *cancellable)
+{
+  (void) cancellable;
+  const char    *dn   = task_data;
+  SbvConnection *conn = SBV_CONNECTION (source);
+  LDAP          *ld   = sbv_connection_acquire_ldap (conn);
+
+  if (!ld) {
+    sbv_connection_release_ldap (conn);
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
+                             "Not connected");
+    return;
+  }
+
+  char    *vals[] = { (char *) "0", NULL };
+  LDAPMod  mod    = { .mod_op = LDAP_MOD_REPLACE,
+                      .mod_type = (char *) "lockoutTime",
+                      .mod_values = vals };
+  LDAPMod *mods[] = { &mod, NULL };
+
+  int rc = ldap_modify_ext_s (ld, dn, mods, NULL, NULL);
+  sbv_connection_release_ldap (conn);
+
+  if (rc == LDAP_INSUFFICIENT_ACCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "You don't have permission to unlock this account.");
+  else if (rc != LDAP_SUCCESS)
+    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                             "Unlock failed: %s", ldap_err2string (rc));
+  else
+    g_task_return_boolean (task, TRUE);
+}
+
+void
+sbv_users_unlock_async (SbvConnection       *conn,
+                        SbvUser             *user,
+                        GCancellable        *cancellable,
+                        GAsyncReadyCallback  callback,
+                        gpointer             user_data)
+{
+  GTask *task = g_task_new (conn, cancellable, callback, user_data);
+  g_task_set_task_data (task, g_strdup (sbv_user_get_dn (user)), g_free);
+  g_task_run_in_thread (task, unlock_thread);
+  g_object_unref (task);
+}
+
+gboolean
+sbv_users_unlock_finish (SbvConnection *conn,
+                         GAsyncResult  *result,
+                         GError       **error)
 {
   (void) conn;
   return g_task_propagate_boolean (G_TASK (result), error);

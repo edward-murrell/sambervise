@@ -20,6 +20,10 @@ struct _SbvUser {
   char       *login_shell;
   char       *unix_home_dir;
   char       *gecos;
+  /* Lockout */
+  gint64      lockout_time;  /* FILETIME; 0 = never locked */
+  gboolean    locked_out;
+  gint64      lockout_end;   /* FILETIME; 0 = unknown; G_MAXINT64 = until unlocked */
   /* Windows profile */
   char       *home_directory;
   char       *home_drive;
@@ -107,6 +111,29 @@ gint        sbv_user_get_gid_number  (SbvUser *self) { return self->gid_number; 
 const char *sbv_user_get_login_shell (SbvUser *self) { return self->login_shell; }
 const char *sbv_user_get_unix_home_dir (SbvUser *self) { return self->unix_home_dir; }
 const char *sbv_user_get_gecos       (SbvUser *self) { return self->gecos; }
+
+/* Lockout accessors */
+void     sbv_user_set_lockout_time (SbvUser *self, gint64   v) { self->lockout_time = v; }
+void     sbv_user_set_locked_out   (SbvUser *self, gboolean v) { self->locked_out   = v; }
+void     sbv_user_set_lockout_end  (SbvUser *self, gint64   v) { self->lockout_end  = v; }
+gint64   sbv_user_get_lockout_time (SbvUser *self) { return self->lockout_time; }
+gboolean sbv_user_get_locked_out   (SbvUser *self) { return self->locked_out; }
+gint64   sbv_user_get_lockout_end  (SbvUser *self) { return self->lockout_end; }
+
+/* Applies Samba's lockout rule. A zero or positive duration, or the
+ * "forever" value G_MININT64, means the lockout lasts until an admin
+ * clears it. Otherwise it ends at lockout_time + |duration|. */
+gint64
+sbv_user_lockout_end (gint64 lockout_time, gint64 lockout_duration, gint64 now)
+{
+  if (lockout_time <= 0) return 0;
+  if (lockout_duration >= 0 || lockout_duration == G_MININT64) return G_MAXINT64;
+
+  gint64 span = -lockout_duration;
+  gint64 end  = (lockout_time > G_MAXINT64 - span) ? G_MAXINT64 - 1
+                                                    : lockout_time + span;
+  return end > now ? end : 0;
+}
 
 /* Windows profile accessors */
 void sbv_user_set_home_directory  (SbvUser *self, const char *v) { g_free (self->home_directory); self->home_directory = g_strdup (v); }

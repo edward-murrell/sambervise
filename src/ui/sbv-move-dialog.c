@@ -59,6 +59,17 @@ on_window_destroy (GtkWidget *win, gpointer user_data)
   ctx_unref (ctx);
 }
 
+/* Move button "destroy": the window is closing. GTK destroys the header
+ * bar before the list box, and the list box then emits "row-selected"
+ * with no row. Disconnect now so that late signal can't reach move_btn. */
+static void
+on_move_btn_destroy (GtkWidget *btn, gpointer user_data)
+{
+  (void) btn;
+  MoveCtx *ctx = user_data;
+  g_signal_handlers_disconnect_by_data (ctx->list_box, ctx);
+}
+
 /* Toggles busy state while the move is in flight. */
 static void
 set_busy (MoveCtx *ctx, gboolean busy)
@@ -269,6 +280,8 @@ sbv_move_dialog_show (GtkWindow       *parent,
   gtk_widget_add_css_class (ctx->move_btn, "suggested-action");
   gtk_widget_set_sensitive (ctx->move_btn, FALSE);
   adw_header_bar_pack_end (ADW_HEADER_BAR (header), ctx->move_btn);
+  g_signal_connect (ctx->move_btn, "destroy",
+                    G_CALLBACK (on_move_btn_destroy), ctx);
   g_signal_connect (ctx->move_btn, "clicked",
                     G_CALLBACK (on_move_clicked), ctx);
 

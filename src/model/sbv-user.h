@@ -45,6 +45,22 @@ void        sbv_user_set_gid_number      (SbvUser *self, gint gid);
 void        sbv_user_set_login_shell     (SbvUser *self, const char *shell);
 void        sbv_user_set_unix_home_dir   (SbvUser *self, const char *home);
 void        sbv_user_set_gecos           (SbvUser *self, const char *gecos);
+/* Lockout. lockout_time is the raw lockoutTime FILETIME (0 = not set).
+ * lockout_end is when it ends: 0 = unknown, G_MAXINT64 = until an admin
+ * unlocks it. */
+gint64      sbv_user_get_lockout_time    (SbvUser *self);
+gboolean    sbv_user_get_locked_out      (SbvUser *self);
+gint64      sbv_user_get_lockout_end     (SbvUser *self);
+void        sbv_user_set_lockout_time    (SbvUser *self, gint64 filetime);
+void        sbv_user_set_locked_out      (SbvUser *self, gboolean locked);
+void        sbv_user_set_lockout_end     (SbvUser *self, gint64 filetime);
+/* Works out when a lockout ends, from lockoutTime, the domain's
+ * lockoutDuration (a negative interval) and the current FILETIME.
+ * Returns 0 when the account isn't locked, G_MAXINT64 when it stays
+ * locked until an admin unlocks it, or the FILETIME it ends. */
+gint64      sbv_user_lockout_end         (gint64 lockout_time,
+                                          gint64 lockout_duration,
+                                          gint64 now);
 /* Windows profile: homeDirectory, homeDrive, scriptPath, profilePath.
  * NULL means the attribute is not present. */
 const char *sbv_user_get_home_directory  (SbvUser *self);

@@ -119,6 +119,17 @@ gboolean sbv_users_set_unix_attrs_finish (SbvConnection *conn,
                                            GAsyncResult  *result,
                                            GError       **error);
 
+/* Clear an account lockout by setting lockoutTime to 0. Leaves the
+ * enabled flag and password alone. */
+void     sbv_users_unlock_async  (SbvConnection       *conn,
+                                  SbvUser             *user,
+                                  GCancellable        *cancellable,
+                                  GAsyncReadyCallback  callback,
+                                  gpointer             user_data);
+gboolean sbv_users_unlock_finish (SbvConnection *conn,
+                                  GAsyncResult  *result,
+                                  GError       **error);
+
 /* Set the Windows profile attributes: homeDirectory, homeDrive, scriptPath
  * and profilePath. Pass "" or NULL to remove one. homeDrive should already
  * be in "H:" form (see sbv_user_normalise_home_drive). */

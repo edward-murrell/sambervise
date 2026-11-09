@@ -2,6 +2,7 @@ sambervise (0.5.0) UNRELEASED; urgency=medium
 
   * Add the Windows Profile section to users: profile path, logon script,
     home folder and home drive.
+  * Show user lockout status and add an Unlock button.
   * Add a Refresh button (F5) that reloads from the DC and discards
     unsaved edits.
   * Fix operations hanging after the DC connection dropped.

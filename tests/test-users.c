@@ -116,6 +116,28 @@ test_user_home_drive (void)
   g_assert_null (sbv_user_normalise_home_drive (NULL));
 }
 
+/* Lockout follows Samba's rule: timed lockouts end, zero or positive
+ * durations last until unlocked, and lockoutTime 0 means not locked. */
+static void
+test_user_lockout_end (void)
+{
+  const gint64 min30 = -18000000000LL;      /* 30 minutes, as AD stores it */
+  const gint64 t     = 134000000000000000LL; /* some FILETIME */
+
+  g_assert_cmpint (sbv_user_lockout_end (0, min30, t), ==, 0);
+  g_assert_cmpint (sbv_user_lockout_end (t, min30, t + 1), ==, t + 18000000000LL);
+  g_assert_cmpint (sbv_user_lockout_end (t, min30, t + 18000000000LL), ==, 0);
+  g_assert_cmpint (sbv_user_lockout_end (t, 0, t + 1), ==, G_MAXINT64);
+  g_assert_cmpint (sbv_user_lockout_end (t, G_MININT64, t + 1), ==, G_MAXINT64);
+  g_assert_cmpint (sbv_user_lockout_end (G_MAXINT64 - 5, min30, 0), ==, G_MAXINT64 - 1);
+
+  SbvUser *user = sbv_user_new ();
+  g_assert_false (sbv_user_get_locked_out (user));
+  g_assert_cmpint (sbv_user_get_lockout_time (user), ==, 0);
+  g_assert_cmpint (sbv_user_get_lockout_end (user), ==, 0);
+  g_object_unref (user);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -125,5 +147,6 @@ main (int argc, char *argv[])
   g_test_add_func ("/user/refcount",   test_user_refcount);
   g_test_add_func ("/user/profile",    test_user_profile);
   g_test_add_func ("/user/home-drive", test_user_home_drive);
+  g_test_add_func ("/user/lockout-end", test_user_lockout_end);
   return g_test_run ();
 }

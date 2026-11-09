@@ -11,12 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows Profile section on users: profile path, logon script, home
   folder and home drive. Leave a field empty to clear it. The home drive
   takes a single letter, such as `H:`, and needs a home folder.
+- Lockout status on users. The Account section shows when a user was
+  locked out and when the lockout ends. Locked users get a "Locked" tag
+  in the list. An Unlock button clears the lockout straight away.
 - Refresh button in the header bar, also on F5 and Ctrl+R. It reloads
   every panel from the DC and discards unsaved edits. The selected
   object stays selected. Raw LDAP re-reads the open entry and keeps the
   tree as it is.
 
 ### Fixed
+- Closing the Move or Add Member dialog no longer logs a GTK warning
+  about a missing widget.
 - Saving Unix attributes or group changes after the DC connection
   dropped could leave later operations stuck until restart.
 

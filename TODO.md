@@ -46,10 +46,13 @@ Bug fixes ship as a patch bump.
 - Deferred from #12: password age, stale computers (no logon in N days)
   and missing DNS registration.
 
-### R3. Lockout status and unlock  *(open)*
-- Show lockout state on the user pane.
-- Unlock button clears `lockoutTime`.
-- The R2 "locked out" toggle depends on the same lockout read.
+### R3. Lockout status and unlock  *(DONE in 0.5.0)*
+- Done: lockout state, start and end time on the user pane, a "Locked"
+  tag in the list, and an Unlock button that sets `lockoutTime` to 0.
+- Lockout comes from `msDS-User-Account-Control-Computed` when the DC
+  returns it, otherwise from `lockoutTime` and the domain's
+  `lockoutDuration`. `sbv_user_get_locked_out` is ready for R2's
+  "locked out" toggle.
 
 ### R4. "Member Of" on users and computers  *(open)*
 - `memberOf` is a read-only back-link. Display it on the user and

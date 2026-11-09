@@ -525,6 +525,19 @@ on_add_dialog_users_loaded (GObject *source, GAsyncResult *result, gpointer user
   g_object_unref (store);
 }
 
+/* Add button "destroy": the dialog is closing. The list box outlives the
+ * header bar and emits a last "row-selected", so disconnect it here before
+ * it can touch add_btn. */
+static void
+on_add_btn_destroy (GtkWidget *btn, gpointer user_data)
+{
+  (void) btn;
+  AddMemberCtx *ctx = user_data;
+  if (ctx->list_box)
+    g_signal_handlers_disconnect_by_data (ctx->list_box, ctx);
+}
+
+/* Dialog "destroy": free the per-dialog context. */
 static void
 on_add_dialog_destroy (GtkWidget *widget, gpointer user_data)
 {
@@ -566,6 +579,7 @@ show_add_member_dialog (SbvGroupsPanel *self)
   gtk_widget_set_sensitive (ctx->add_btn, FALSE);
   adw_header_bar_pack_end (ADW_HEADER_BAR (header), ctx->add_btn);
   g_signal_connect (ctx->add_btn, "clicked", G_CALLBACK (on_add_btn_clicked), ctx);
+  g_signal_connect (ctx->add_btn, "destroy", G_CALLBACK (on_add_btn_destroy), ctx);
 
   gtk_box_append (GTK_BOX (vbox), header);
 

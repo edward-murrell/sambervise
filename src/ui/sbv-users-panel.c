@@ -41,6 +41,9 @@ struct _SbvUsersPanel {
   GtkWidget     *dn_label;
   GtkWidget     *sam_label;
   GtkWidget     *enabled_check;
+  GtkWidget     *lockout_label;
+  GtkWidget     *unlock_btn;
+  GtkWidget     *unlock_error;
 
   /* Windows profile (editable) */
   GtkWidget     *prof_path_entry;
@@ -173,6 +176,12 @@ make_user_row (SbvUser *user)
 
   gtk_box_append (GTK_BOX (box), text_box);
 
+  if (sbv_user_get_locked_out (user)) {
+    GtkWidget *locked = gtk_label_new ("Locked");
+    gtk_widget_add_css_class (locked, "warning");
+    gtk_box_append (GTK_BOX (box), locked);
+  }
+
   gboolean   enabled = sbv_user_get_enabled (user);
   GtkWidget *status  = gtk_label_new (enabled ? "Enabled" : "Disabled");
   gtk_widget_add_css_class (status, enabled ? "success" : "error");
@@ -180,6 +189,89 @@ make_user_row (SbvUser *user)
 
   gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), box);
   return row;
+}
+
+/* ── Lockout ────────────────────────────────────────────────────────────── */
+
+/* Formats a FILETIME as local "YYYY-MM-DD HH:MM". Caller frees. */
+static char *
+format_filetime (gint64 filetime)
+{
+  gint64     unix_ts = (filetime / WIN_TICKS_PER_SEC) - WIN_EPOCH_OFFSET;
+  GDateTime *dt      = g_date_time_new_from_unix_local (unix_ts);
+  if (!dt) return g_strdup ("?");
+  char *s = g_date_time_format (dt, "%Y-%m-%d %H:%M");
+  g_date_time_unref (dt);
+  return s;
+}
+
+/* Shows the user's lockout state, and the Unlock button only when the
+ * account is locked. */
+static void
+update_lockout_display (SbvUsersPanel *self, SbvUser *user)
+{
+  gtk_widget_set_visible (self->unlock_error, FALSE);
+  gtk_widget_set_sensitive (self->unlock_btn, TRUE);
+
+  if (!sbv_user_get_locked_out (user)) {
+    gtk_label_set_text (GTK_LABEL (self->lockout_label), "Not locked out");
+    gtk_widget_remove_css_class (self->lockout_label, "warning");
+    gtk_widget_set_visible (self->unlock_btn, FALSE);
+    return;
+  }
+
+  gint64 since = sbv_user_get_lockout_time (user);
+  gint64 end   = sbv_user_get_lockout_end (user);
+  GString *msg = g_string_new ("Locked out");
+  if (since > 0) {
+    char *s = format_filetime (since);
+    g_string_append_printf (msg, " since %s", s);
+    g_free (s);
+  }
+  g_string_append (msg, ".");
+  if (end == G_MAXINT64) {
+    g_string_append (msg, " Stays locked until unlocked.");
+  } else if (end > 0) {
+    char *s = format_filetime (end);
+    g_string_append_printf (msg, " Unlocks at %s.", s);
+    g_free (s);
+  }
+  gtk_label_set_text (GTK_LABEL (self->lockout_label), msg->str);
+  gtk_widget_add_css_class (self->lockout_label, "warning");
+  gtk_widget_set_visible (self->unlock_btn, TRUE);
+  g_string_free (msg, TRUE);
+}
+
+/* Unlock completion: show the error, or reload so the list and pane show
+ * the cleared lockout. */
+static void
+on_unlock_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  SbvConnection *conn = SBV_CONNECTION (source);
+  GError        *err  = NULL;
+
+  gtk_widget_set_sensitive (self->unlock_btn, TRUE);
+  if (!sbv_users_unlock_finish (conn, result, &err)) {
+    gtk_label_set_text (GTK_LABEL (self->unlock_error), err->message);
+    gtk_widget_set_visible (self->unlock_error, TRUE);
+    g_error_free (err);
+    return;
+  }
+  sbv_users_panel_load (self, conn);
+}
+
+/* "Unlock" button: clears the lockout straight away. No Save needed. */
+static void
+on_unlock_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  if (!self->selected_user || !self->conn) return;
+  gtk_widget_set_visible (self->unlock_error, FALSE);
+  gtk_widget_set_sensitive (self->unlock_btn, FALSE);
+  sbv_users_unlock_async (self->conn, self->selected_user, NULL,
+                          on_unlock_done, self);
 }
 
 /* ── Filter ─────────────────────────────────────────────────────────────── */
@@ -249,6 +341,7 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
                       sbv_user_get_sam (user) ? sbv_user_get_sam (user) : "");
   gtk_check_button_set_active (GTK_CHECK_BUTTON (self->enabled_check),
                                 sbv_user_get_enabled (user));
+  update_lockout_display (self, user);
 
   /* Clear password fields */
   gtk_editable_set_text (GTK_EDITABLE (self->new_pw_entry),     "");
@@ -1620,6 +1713,30 @@ sbv_users_panel_init (SbvUsersPanel *self)
     self->enabled_check = gtk_check_button_new_with_label ("Account enabled");
     gtk_widget_set_margin_start (self->enabled_check, 148);
     gtk_box_append (GTK_BOX (form), self->enabled_check);
+
+    self->lockout_label = gtk_label_new ("");
+    gtk_label_set_xalign (GTK_LABEL (self->lockout_label), 0);
+    gtk_label_set_wrap (GTK_LABEL (self->lockout_label), TRUE);
+    self->unlock_btn = gtk_button_new_with_label ("Unlock");
+    gtk_widget_set_tooltip_text (self->unlock_btn,
+                                 "Clear the lockout so the user can sign in again");
+    gtk_widget_set_valign (self->unlock_btn, GTK_ALIGN_CENTER);
+    g_signal_connect (self->unlock_btn, "clicked",
+                      G_CALLBACK (on_unlock_clicked), self);
+    {
+      GtkWidget *lock_box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      gtk_widget_set_hexpand (self->lockout_label, TRUE);
+      gtk_box_append (GTK_BOX (lock_box), self->lockout_label);
+      gtk_box_append (GTK_BOX (lock_box), self->unlock_btn);
+      gtk_box_append (GTK_BOX (form), make_field_row ("Lockout", lock_box));
+    }
+    self->unlock_error = gtk_label_new ("");
+    gtk_label_set_xalign (GTK_LABEL (self->unlock_error), 0);
+    gtk_label_set_wrap (GTK_LABEL (self->unlock_error), TRUE);
+    gtk_widget_add_css_class (self->unlock_error, "error");
+    gtk_widget_set_margin_start (self->unlock_error, 148);
+    gtk_widget_set_visible (self->unlock_error, FALSE);
+    gtk_box_append (GTK_BOX (form), self->unlock_error);
 
     /* Save button + error */
     GtkWidget *save_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 4);
