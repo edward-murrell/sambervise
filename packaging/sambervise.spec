@@ -55,13 +55,14 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
-* Sun Nov 08 2026 Edward Murrell <edward@murrell.co.nz> - 0.5.0-1
+* Mon Nov 09 2026 Edward Murrell <edward@murrell.co.nz> - 0.5.0-1
 - Add the Windows Profile section to users: profile path, logon script,
   home folder and home drive.
 - Show user lockout status and add an Unlock button.
 - Add a Refresh button (F5) that reloads from the DC and discards
   unsaved edits.
 - Fix operations hanging after the DC connection dropped.
+- Fix a warning when closing the Move and Add Member dialogs.
 
 * Sun Nov 08 2026 Edward Murrell <edward@murrell.co.nz> - 0.4.0-1
 - Add the OUs panel: create, rename, move and delete organisational units.
