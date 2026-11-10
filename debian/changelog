@@ -1,4 +1,4 @@
-sambervise (0.6.0) UNRELEASED; urgency=medium
+sambervise (0.6.0) unstable; urgency=medium
 
   * Add Disabled, Locked and Expired filters to the Users list, and a
     Disabled filter to the Computers list.
@@ -6,8 +6,10 @@ sambervise (0.6.0) UNRELEASED; urgency=medium
   * Add a Member Of section to users and computers, with Add to Group
     and Remove.
   * Fix search missing groups, computers and users with empty fields.
+  * Fix a warning and a possible crash when closing the Move and Add
+    Member dialogs.
 
- -- Edward Murrell <edward@murrell.co.nz>  Tue, 10 Nov 2026 14:17:52 +1100
+ -- Edward Murrell <edward@murrell.co.nz>  Tue, 10 Nov 2026 20:08:15 +1100
 
 sambervise (0.5.0) unstable; urgency=medium
 

@@ -62,6 +62,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 - Add a Member Of section to users and computers, with Add to Group
   and Remove.
 - Fix search missing groups, computers and users with empty fields.
+- Fix a warning and a possible crash when closing the Move and Add
+  Member dialogs.
 
 * Mon Nov 09 2026 Edward Murrell <edward@murrell.co.nz> - 0.5.0-1
 - Add the Windows Profile section to users: profile path, logon script,
