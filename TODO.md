@@ -39,10 +39,14 @@ Bug fixes ship as a patch bump.
   - GPO links (R15), delegation (R17) and move-to-OU in bulk (R8) build on
     this.
 
-### R2. Search box and basic filters  *(open, replaces #12)*
-- Every panel already has a search box that filters the loaded list.
-- Extend matching to name and sAMAccountName where it isn't already.
-- Add toggles for disabled, locked out and password expired.
+### R2. Search box and basic filters  *(DONE in 0.6.0, replaces #12)*
+- Done: every panel searches with one shared matcher. Users match name,
+  cn, sAMAccountName and mail. Groups match name, sAMAccountName and
+  description. Computers also match the operating system.
+- Done: Users list toggles for Disabled, Locked and Expired, combined
+  with AND. Computers list has a Disabled toggle.
+- Expired comes from the computed 0x800000 flag, otherwise from
+  `pwdLastSet` and the domain's `maxPwdAge`.
 - Deferred from #12: password age, stale computers (no logon in N days)
   and missing DNS registration.
 

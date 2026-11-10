@@ -5,6 +5,7 @@
 #include "../backend/sbv-collisions.h"
 #include "../backend/sbv-idmap-hints.h"
 #include "../model/sbv-user.h"
+#include "../model/sbv-search.h"
 
 #include <adwaita.h>
 #include <string.h>
@@ -20,6 +21,9 @@ struct _SbvUsersPanel {
   GtkWidget     *outer_stack;    /* "loading" | "empty" | "split" */
   GtkWidget     *search_entry;
   GtkWidget     *add_btn;
+  GtkWidget     *disabled_toggle;  /* show only disabled accounts */
+  GtkWidget     *locked_toggle;    /* show only locked-out accounts */
+  GtkWidget     *expired_toggle;   /* show only expired passwords */
   GtkWidget     *list_box;
   GtkWidget     *spinner;
 
@@ -182,6 +186,13 @@ make_user_row (SbvUser *user)
     gtk_box_append (GTK_BOX (box), locked);
   }
 
+  if (sbv_user_get_password_expired (user)) {
+    GtkWidget *expired = gtk_label_new ("Expired");
+    gtk_widget_add_css_class (expired, "warning");
+    gtk_widget_set_tooltip_text (expired, "Password has expired");
+    gtk_box_append (GTK_BOX (box), expired);
+  }
+
   gboolean   enabled = sbv_user_get_enabled (user);
   GtkWidget *status  = gtk_label_new (enabled ? "Enabled" : "Disabled");
   gtk_widget_add_css_class (status, enabled ? "success" : "error");
@@ -276,44 +287,67 @@ on_unlock_clicked (GtkButton *btn, gpointer user_data)
 
 /* ── Filter ─────────────────────────────────────────────────────────────── */
 
+/* Returns TRUE when a toggle is pressed. */
+static gboolean
+toggle_on (GtkWidget *toggle)
+{
+  return gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (toggle));
+}
+
+/* Shows a row when it matches the search text and every active toggle.
+ * Each toggle narrows the list further. */
 static gboolean
 filter_func (GtkListBoxRow *row, gpointer user_data)
 {
   SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
-  if (!self->filter_text || !*self->filter_text)
-    return TRUE;
-
-  SbvUser *user = g_object_get_data (G_OBJECT (row), "sbv-user");
+  SbvUser       *user = g_object_get_data (G_OBJECT (row), "sbv-user");
   if (!user) return TRUE;
 
-  /* Don't NULL-terminate this array: any NULL field (commonly displayName,
-   * which AD leaves unset for plenty of accounts) would short-circuit the
-   * loop and hide every row. Iterate by count and skip NULLs per-element. */
+  if (toggle_on (self->disabled_toggle) && sbv_user_get_enabled (user))
+    return FALSE;
+  if (toggle_on (self->locked_toggle) && !sbv_user_get_locked_out (user))
+    return FALSE;
+  if (toggle_on (self->expired_toggle) && !sbv_user_get_password_expired (user))
+    return FALSE;
+
   const char *fields[] = {
     sbv_user_get_display_name (user),
     sbv_user_get_cn (user),
     sbv_user_get_sam (user),
     sbv_user_get_email (user),
   };
-
-  for (size_t i = 0; i < G_N_ELEMENTS (fields); i++) {
-    if (!fields[i]) continue;
-    char *lower = g_utf8_strdown (fields[i], -1);
-    gboolean match = strstr (lower, self->filter_text) != NULL;
-    g_free (lower);
-    if (match) return TRUE;
-  }
-  return FALSE;
+  return sbv_search_matches (self->filter_text, fields, G_N_ELEMENTS (fields));
 }
 
+/* Re-runs the list filter when the search entry changes. */
 static void
 on_search_changed (GtkSearchEntry *entry, gpointer user_data)
 {
   SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
   g_free (self->filter_text);
-  const char *text = gtk_editable_get_text (GTK_EDITABLE (entry));
-  self->filter_text = *text ? g_utf8_strdown (text, -1) : NULL;
+  self->filter_text = sbv_search_fold (gtk_editable_get_text (GTK_EDITABLE (entry)));
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
+}
+
+/* Re-runs the list filter when a filter toggle changes. */
+static void
+on_filter_toggled (GtkToggleButton *button, gpointer user_data)
+{
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  (void) button;
+  gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
+}
+
+/* Makes one filter toggle and adds it to the filter bar. */
+static GtkWidget *
+add_filter_toggle (SbvUsersPanel *self, GtkWidget *bar,
+                   const char *label, const char *tooltip)
+{
+  GtkWidget *toggle = gtk_toggle_button_new_with_label (label);
+  gtk_widget_set_tooltip_text (toggle, tooltip);
+  g_signal_connect (toggle, "toggled", G_CALLBACK (on_filter_toggled), self);
+  gtk_box_append (GTK_BOX (bar), toggle);
+  return toggle;
 }
 
 /* ── Load user into detail form ─────────────────────────────────────────── */
@@ -1603,6 +1637,19 @@ sbv_users_panel_init (SbvUsersPanel *self)
     gtk_box_append (GTK_BOX (toolbar), self->add_btn);
 
     gtk_box_append (GTK_BOX (left_box), toolbar);
+
+    GtkWidget *filter_bar = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_bottom (filter_bar, 6);
+    gtk_widget_set_margin_start  (filter_bar, 8);
+    gtk_widget_set_margin_end    (filter_bar, 8);
+    self->disabled_toggle = add_filter_toggle (self, filter_bar, "Disabled",
+                                               "Show only disabled accounts");
+    self->locked_toggle   = add_filter_toggle (self, filter_bar, "Locked",
+                                               "Show only locked-out accounts");
+    self->expired_toggle  = add_filter_toggle (self, filter_bar, "Expired",
+                                               "Show only accounts whose password has expired");
+    gtk_box_append (GTK_BOX (left_box), filter_bar);
+
     gtk_box_append (GTK_BOX (left_box),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
 
@@ -1615,6 +1662,11 @@ sbv_users_panel_init (SbvUsersPanel *self)
                                       GTK_SELECTION_SINGLE);
     gtk_list_box_set_filter_func (GTK_LIST_BOX (self->list_box),
                                    filter_func, self, NULL);
+    GtkWidget *no_match = gtk_label_new ("No users match");
+    gtk_widget_add_css_class (no_match, "dim-label");
+    gtk_widget_set_margin_top    (no_match, 12);
+    gtk_widget_set_margin_bottom (no_match, 12);
+    gtk_list_box_set_placeholder (GTK_LIST_BOX (self->list_box), no_match);
     gtk_widget_add_css_class (self->list_box, "boxed-list");
     g_signal_connect (self->list_box, "row-selected",
                       G_CALLBACK (on_row_selected), self);

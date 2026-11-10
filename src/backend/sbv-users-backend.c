@@ -11,33 +11,48 @@
 #define UAC_NORMAL_ACCOUNT     0x0200
 #define UAC_DONT_EXPIRE_PASSWD 0x10000
 #define UAC_LOCKOUT            0x0010   /* in msDS-User-Account-Control-Computed */
+#define UAC_PASSWORD_EXPIRED   0x800000 /* in msDS-User-Account-Control-Computed */
 
 #define WIN_EPOCH_OFFSET  11644473600LL
 #define WIN_TICKS_PER_SEC 10000000LL
 
 /* ── List users ─────────────────────────────────────────────────────────── */
 
-/* Reads the domain's lockoutDuration from the base DN. Returns 0 when it
- * can't be read, which treats lockouts as lasting until unlocked. Caller
- * holds the LDAP lock. */
+/* Reads one integer attribute from a search entry. Returns fallback when
+ * the attribute is missing. */
 static gint64
-read_lockout_duration (LDAP *ld, const char *base)
+entry_int64 (LDAP *ld, LDAPMessage *entry, const char *attr, gint64 fallback)
 {
-  char          *attrs[] = { (char *) "lockoutDuration", NULL };
+  struct berval **bv    = entry ? ldap_get_values_len (ld, entry, attr) : NULL;
+  gint64          value = (bv && bv[0]) ? g_ascii_strtoll (bv[0]->bv_val, NULL, 10)
+                                        : fallback;
+  ldap_value_free_len (bv);
+  return value;
+}
+
+/* Reads the domain's lockoutDuration and maxPwdAge from the base DN.
+ * Either is 0 when it can't be read. A 0 lockoutDuration treats lockouts
+ * as lasting until unlocked. A 0 maxPwdAge means passwords never age
+ * out. Caller holds the LDAP lock. */
+static void
+read_domain_policy (LDAP *ld, const char *base,
+                    gint64 *lockout_duration, gint64 *max_pwd_age)
+{
+  char          *attrs[] = { (char *) "lockoutDuration",
+                             (char *) "maxPwdAge", NULL };
   struct timeval tv      = { 30, 0 };
   LDAPMessage   *result  = NULL;
-  gint64         value   = 0;
 
+  *lockout_duration = 0;
+  *max_pwd_age      = 0;
   int rc = ldap_search_ext_s (ld, base, LDAP_SCOPE_BASE, "(objectClass=*)",
                                attrs, 0, NULL, NULL, &tv, 1, &result);
   if (rc == LDAP_SUCCESS) {
     LDAPMessage *entry = ldap_first_entry (ld, result);
-    struct berval **bv = entry ? ldap_get_values_len (ld, entry, "lockoutDuration") : NULL;
-    if (bv && bv[0]) value = g_ascii_strtoll (bv[0]->bv_val, NULL, 10);
-    ldap_value_free_len (bv);
+    *lockout_duration = entry_int64 (ld, entry, "lockoutDuration", 0);
+    *max_pwd_age      = entry_int64 (ld, entry, "maxPwdAge", 0);
   }
   if (result) ldap_msgfree (result);
-  return value;
 }
 
 /* The current time as a Windows FILETIME (100 ns ticks since 1601). */
@@ -65,7 +80,8 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
 
   const char *base   = sbv_connection_get_base_dn (conn);
   const char *filter = "(&(objectClass=user)(!(objectClass=computer)))";
-  gint64 lockout_duration = read_lockout_duration (ld, base);
+  gint64 lockout_duration, max_pwd_age;
+  read_domain_policy (ld, base, &lockout_duration, &max_pwd_age);
   gint64 now              = filetime_now ();
   const char *attrs[] = {
     "distinguishedName", "sAMAccountName",
@@ -127,24 +143,30 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
       }
       ldap_value_free_len (bv);
 
-      /* Lockout. Samba's computed UAC flag is authoritative when present,
-       * because it also applies fine-grained password policies. */
+      /* Lockout and password expiry. Samba's computed UAC flags are
+       * authoritative when present, because they also apply fine-grained
+       * password policies. */
       {
-        gint64 lt = 0;
-        bv = ldap_get_values_len (ld, entry, "lockoutTime");
-        if (bv && bv[0]) lt = g_ascii_strtoll (bv[0]->bv_val, NULL, 10);
-        ldap_value_free_len (bv);
-
-        gint64   end    = sbv_user_lockout_end (lt, lockout_duration, now);
-        gboolean locked = (end != 0);
-        bv = ldap_get_values_len (ld, entry, "msDS-User-Account-Control-Computed");
-        if (bv && bv[0])
-          locked = (g_ascii_strtoll (bv[0]->bv_val, NULL, 10) & UAC_LOCKOUT) != 0;
-        ldap_value_free_len (bv);
+        gint64 lt       = entry_int64 (ld, entry, "lockoutTime", 0);
+        gint64 computed = entry_int64 (ld, entry,
+                                       "msDS-User-Account-Control-Computed", -1);
+        gint64 end      = sbv_user_lockout_end (lt, lockout_duration, now);
+        gboolean locked = (computed >= 0) ? (computed & UAC_LOCKOUT) != 0
+                                          : end != 0;
 
         sbv_user_set_lockout_time (user, lt);
         sbv_user_set_locked_out   (user, locked);
         sbv_user_set_lockout_end  (user, locked ? end : 0);
+
+        gboolean expired;
+        if (computed >= 0) {
+          expired = (computed & UAC_PASSWORD_EXPIRED) != 0;
+        } else {
+          gint64 uac = entry_int64 (ld, entry, "userAccountControl", 0);
+          gint64 pls = entry_int64 (ld, entry, "pwdLastSet", -1);
+          expired = sbv_user_password_expired (uac, pls, max_pwd_age, now);
+        }
+        sbv_user_set_password_expired (user, expired);
       }
 
       bv = ldap_get_values_len (ld, entry, "pwdLastSet");

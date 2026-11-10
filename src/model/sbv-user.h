@@ -61,6 +61,17 @@ void        sbv_user_set_lockout_end     (SbvUser *self, gint64 filetime);
 gint64      sbv_user_lockout_end         (gint64 lockout_time,
                                           gint64 lockout_duration,
                                           gint64 now);
+/* Password expiry. TRUE when the password has expired and must be
+ * changed before the account can log on. */
+gboolean    sbv_user_get_password_expired (SbvUser *self);
+void        sbv_user_set_password_expired (SbvUser *self, gboolean expired);
+/* Works out whether a password has expired from userAccountControl,
+ * pwdLastSet, the domain's maxPwdAge (a negative interval) and the
+ * current FILETIME. Used when the DC doesn't return the computed flag. */
+gboolean    sbv_user_password_expired    (gint64 uac,
+                                          gint64 pwd_last_set,
+                                          gint64 max_pwd_age,
+                                          gint64 now);
 /* Windows profile: homeDirectory, homeDrive, scriptPath, profilePath.
  * NULL means the attribute is not present. */
 const char *sbv_user_get_home_directory  (SbvUser *self);

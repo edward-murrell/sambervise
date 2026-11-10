@@ -5,6 +5,7 @@
 #include "../backend/sbv-ou-backend.h"
 #include "../backend/sbv-dn.h"
 #include "../model/sbv-ou.h"
+#include "../model/sbv-search.h"
 
 #include <adwaita.h>
 #include <string.h>
@@ -92,13 +93,7 @@ filter_func (GtkListBoxRow *row, gpointer user_data)
 
   char *joined = g_strjoinv (" ", (char **) sbv_ou_get_path (ou));
   const char *fields[] = { sbv_ou_get_name (ou), sbv_ou_get_description (ou), joined };
-  gboolean hit = FALSE;
-  for (gsize i = 0; i < G_N_ELEMENTS (fields) && !hit; i++) {
-    if (!fields[i]) continue;
-    char *lower = g_utf8_strdown (fields[i], -1);
-    hit = strstr (lower, self->filter_text) != NULL;
-    g_free (lower);
-  }
+  gboolean hit = sbv_search_matches (self->filter_text, fields, G_N_ELEMENTS (fields));
   g_free (joined);
   return hit;
 }
@@ -109,8 +104,7 @@ on_search_changed (GtkSearchEntry *entry, gpointer user_data)
 {
   SbvOusPanel *self = SBV_OUS_PANEL (user_data);
   g_free (self->filter_text);
-  const char *text = gtk_editable_get_text (GTK_EDITABLE (entry));
-  self->filter_text = *text ? g_utf8_strdown (text, -1) : NULL;
+  self->filter_text = sbv_search_fold (gtk_editable_get_text (GTK_EDITABLE (entry)));
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
 }
 

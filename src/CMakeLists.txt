@@ -34,6 +34,7 @@ add_executable(sambervise
     model/sbv-profile.c
     model/sbv-ldap-node.c
     model/sbv-ou.c
+    model/sbv-search.c
     backend/sbv-connection.c
     backend/sbv-dns.c
     backend/sbv-profiles.c

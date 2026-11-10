@@ -3,6 +3,7 @@
 #include "sbv-create-computer-dialog.h"
 #include "../backend/sbv-computers-backend.h"
 #include "../model/sbv-computer.h"
+#include "../model/sbv-search.h"
 
 #include <adwaita.h>
 #include <string.h>
@@ -14,6 +15,7 @@ struct _SbvComputersPanel {
   GtkWidget     *outer_stack;    /* "loading" | "empty" | "split" */
   GtkWidget     *search_entry;
   GtkWidget     *add_btn;
+  GtkWidget     *disabled_toggle;  /* show only disabled computers */
   GtkWidget     *list_box;
   GtkWidget     *spinner;
 
@@ -126,41 +128,45 @@ make_computer_row (SbvComputer *computer)
 
 /* ── Filter ─────────────────────────────────────────────────────────────── */
 
+/* Shows a row when it matches the search text and, if the Disabled
+ * toggle is pressed, the computer is disabled. */
 static gboolean
 filter_func (GtkListBoxRow *row, gpointer user_data)
 {
-  SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
-  if (!self->filter_text || !*self->filter_text)
-    return TRUE;
-
-  SbvComputer *computer = g_object_get_data (G_OBJECT (row), "sbv-computer");
+  SbvComputersPanel *self     = SBV_COMPUTERS_PANEL (user_data);
+  SbvComputer       *computer = g_object_get_data (G_OBJECT (row), "sbv-computer");
   if (!computer) return TRUE;
+
+  if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (self->disabled_toggle))
+      && sbv_computer_get_enabled (computer))
+    return FALSE;
 
   const char *fields[] = {
     sbv_computer_get_cn (computer),
     sbv_computer_get_sam (computer),
     sbv_computer_get_dns_hostname (computer),
     sbv_computer_get_description (computer),
-    NULL
+    sbv_computer_get_os (computer),
   };
-
-  for (int i = 0; fields[i]; i++) {
-    if (!fields[i]) continue;
-    char *lower = g_utf8_strdown (fields[i], -1);
-    gboolean match = strstr (lower, self->filter_text) != NULL;
-    g_free (lower);
-    if (match) return TRUE;
-  }
-  return FALSE;
+  return sbv_search_matches (self->filter_text, fields, G_N_ELEMENTS (fields));
 }
 
+/* Re-runs the list filter when the search entry changes. */
 static void
 on_search_changed (GtkSearchEntry *entry, gpointer user_data)
 {
   SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
   g_free (self->filter_text);
-  const char *text = gtk_editable_get_text (GTK_EDITABLE (entry));
-  self->filter_text = *text ? g_utf8_strdown (text, -1) : NULL;
+  self->filter_text = sbv_search_fold (gtk_editable_get_text (GTK_EDITABLE (entry)));
+  gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
+}
+
+/* Re-runs the list filter when the Disabled toggle changes. */
+static void
+on_filter_toggled (GtkToggleButton *button, gpointer user_data)
+{
+  SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
+  (void) button;
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
 }
 
@@ -1011,6 +1017,19 @@ sbv_computers_panel_init (SbvComputersPanel *self)
     gtk_box_append (GTK_BOX (toolbar), self->add_btn);
 
     gtk_box_append (GTK_BOX (left_box), toolbar);
+
+    GtkWidget *filter_bar = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_margin_bottom (filter_bar, 6);
+    gtk_widget_set_margin_start  (filter_bar, 8);
+    gtk_widget_set_margin_end    (filter_bar, 8);
+    self->disabled_toggle = gtk_toggle_button_new_with_label ("Disabled");
+    gtk_widget_set_tooltip_text (self->disabled_toggle,
+                                 "Show only disabled computers");
+    g_signal_connect (self->disabled_toggle, "toggled",
+                      G_CALLBACK (on_filter_toggled), self);
+    gtk_box_append (GTK_BOX (filter_bar), self->disabled_toggle);
+    gtk_box_append (GTK_BOX (left_box), filter_bar);
+
     gtk_box_append (GTK_BOX (left_box),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
 
@@ -1023,6 +1042,11 @@ sbv_computers_panel_init (SbvComputersPanel *self)
                                       GTK_SELECTION_SINGLE);
     gtk_list_box_set_filter_func (GTK_LIST_BOX (self->list_box),
                                    filter_func, self, NULL);
+    GtkWidget *no_match = gtk_label_new ("No computers match");
+    gtk_widget_add_css_class (no_match, "dim-label");
+    gtk_widget_set_margin_top    (no_match, 12);
+    gtk_widget_set_margin_bottom (no_match, 12);
+    gtk_list_box_set_placeholder (GTK_LIST_BOX (self->list_box), no_match);
     gtk_widget_add_css_class (self->list_box, "boxed-list");
     g_signal_connect (self->list_box, "row-selected",
                       G_CALLBACK (on_row_selected), self);

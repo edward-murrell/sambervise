@@ -5,6 +5,25 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - Unreleased
+
+### Added
+- Filter toggles on the Users list: Disabled, Locked and Expired. Each
+  toggle narrows the list, so pressing two shows accounts that match
+  both. The Computers list gets a Disabled toggle.
+- Users whose password has expired get an "Expired" tag in the list.
+- Group search also matches the description. Computer search also
+  matches the operating system.
+
+### Fixed
+- Searching groups now finds a group by its account name when it has
+  no display name.
+- Searching computers now finds a computer by its description when it
+  has no DNS host name.
+- The Add Member dialog now finds users by account name when they have
+  no display name.
+- Search ignores spaces before and after the search text.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added

@@ -24,6 +24,7 @@ struct _SbvUser {
   gint64      lockout_time;  /* FILETIME; 0 = never locked */
   gboolean    locked_out;
   gint64      lockout_end;   /* FILETIME; 0 = unknown; G_MAXINT64 = until unlocked */
+  gboolean    password_expired;
   /* Windows profile */
   char       *home_directory;
   char       *home_drive;
@@ -133,6 +134,33 @@ sbv_user_lockout_end (gint64 lockout_time, gint64 lockout_duration, gint64 now)
   gint64 end  = (lockout_time > G_MAXINT64 - span) ? G_MAXINT64 - 1
                                                     : lockout_time + span;
   return end > now ? end : 0;
+}
+
+/* Password expiry accessors */
+void     sbv_user_set_password_expired (SbvUser *self, gboolean v) { self->password_expired = v; }
+gboolean sbv_user_get_password_expired (SbvUser *self) { return self->password_expired; }
+
+/* userAccountControl bits for accounts whose passwords never expire:
+ * DONT_EXPIRE_PASSWD, SMARTCARD_REQUIRED and the three trust account
+ * types. */
+#define NO_EXPIRY_UAC (0x10000 | 0x40000 | 0x0800 | 0x1000 | 0x2000)
+
+/* Applies the AD expiry rule. Accounts flagged as never expiring are
+ * never expired. A pwdLastSet of 0 means the password must be changed
+ * now. A zero or positive maxPwdAge, or G_MININT64, means passwords
+ * never age out. */
+gboolean
+sbv_user_password_expired (gint64 uac, gint64 pwd_last_set,
+                           gint64 max_pwd_age, gint64 now)
+{
+  if (uac & NO_EXPIRY_UAC) return FALSE;
+  if (pwd_last_set == 0) return TRUE;
+  if (pwd_last_set < 0) return FALSE;
+  if (max_pwd_age >= 0 || max_pwd_age == G_MININT64) return FALSE;
+
+  gint64 span = -max_pwd_age;
+  if (pwd_last_set > G_MAXINT64 - span) return FALSE;
+  return now >= pwd_last_set + span;
 }
 
 /* Windows profile accessors */

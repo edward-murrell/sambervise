@@ -1,3 +1,12 @@
+sambervise (0.6.0) UNRELEASED; urgency=medium
+
+  * Add Disabled, Locked and Expired filters to the Users list, and a
+    Disabled filter to the Computers list.
+  * Tag users whose password has expired.
+  * Fix search missing groups, computers and users with empty fields.
+
+ -- Edward Murrell <edward@murrell.co.nz>  Tue, 10 Nov 2026 14:17:52 +1100
+
 sambervise (0.5.0) unstable; urgency=medium
 
   * Add the Windows Profile section to users: profile path, logon script,

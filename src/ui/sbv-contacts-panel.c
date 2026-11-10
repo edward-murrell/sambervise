@@ -3,6 +3,7 @@
 #include "sbv-create-contact-dialog.h"
 #include "../backend/sbv-contacts-backend.h"
 #include "../model/sbv-contact.h"
+#include "../model/sbv-search.h"
 
 #include <adwaita.h>
 #include <string.h>
@@ -119,16 +120,12 @@ make_contact_row (SbvContact *contact)
 
 /* ── Filter ─────────────────────────────────────────────────────────────── */
 
-/* Returns TRUE if the row should be visible given the current search text.
- * Skips NULL fields explicitly so a missing displayName doesn't hide rows. */
+/* Shows a row when the search text matches its name, mail or phone. */
 static gboolean
 filter_func (GtkListBoxRow *row, gpointer user_data)
 {
-  SbvContactsPanel *self = SBV_CONTACTS_PANEL (user_data);
-  if (!self->filter_text || !*self->filter_text)
-    return TRUE;
-
-  SbvContact *contact = g_object_get_data (G_OBJECT (row), "sbv-contact");
+  SbvContactsPanel *self    = SBV_CONTACTS_PANEL (user_data);
+  SbvContact       *contact = g_object_get_data (G_OBJECT (row), "sbv-contact");
   if (!contact) return TRUE;
 
   const char *fields[] = {
@@ -137,15 +134,7 @@ filter_func (GtkListBoxRow *row, gpointer user_data)
     sbv_contact_get_mail (contact),
     sbv_contact_get_telephone_number (contact),
   };
-
-  for (size_t i = 0; i < G_N_ELEMENTS (fields); i++) {
-    if (!fields[i]) continue;
-    char *lower = g_utf8_strdown (fields[i], -1);
-    gboolean match = strstr (lower, self->filter_text) != NULL;
-    g_free (lower);
-    if (match) return TRUE;
-  }
-  return FALSE;
+  return sbv_search_matches (self->filter_text, fields, G_N_ELEMENTS (fields));
 }
 
 /* Re-runs the list filter when the search entry changes. */
@@ -154,8 +143,7 @@ on_search_changed (GtkSearchEntry *entry, gpointer user_data)
 {
   SbvContactsPanel *self = SBV_CONTACTS_PANEL (user_data);
   g_free (self->filter_text);
-  const char *text = gtk_editable_get_text (GTK_EDITABLE (entry));
-  self->filter_text = *text ? g_utf8_strdown (text, -1) : NULL;
+  self->filter_text = sbv_search_fold (gtk_editable_get_text (GTK_EDITABLE (entry)));
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
 }
 

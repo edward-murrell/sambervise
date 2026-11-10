@@ -7,6 +7,7 @@
 #include "../backend/sbv-idmap-hints.h"
 #include "../model/sbv-group.h"
 #include "../model/sbv-user.h"
+#include "../model/sbv-search.h"
 
 #include <adwaita.h>
 #include <string.h>
@@ -154,37 +155,30 @@ make_group_row (SbvGroup *group)
 
 /* ── Filter ─────────────────────────────────────────────────────────────── */
 
+/* Shows a row when the search text matches its name, sAMAccountName or
+ * description. */
 static gboolean
 filter_func (GtkListBoxRow *row, gpointer user_data)
 {
-  SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
-  if (!self->filter_text || !*self->filter_text)
-    return TRUE;
-
-  SbvGroup *group = g_object_get_data (G_OBJECT (row), "sbv-group");
+  SbvGroupsPanel *self  = SBV_GROUPS_PANEL (user_data);
+  SbvGroup       *group = g_object_get_data (G_OBJECT (row), "sbv-group");
   if (!group) return TRUE;
 
   const char *fields[] = {
     sbv_group_get_display_name (group),
     sbv_group_get_sam (group),
-    NULL
+    sbv_group_get_description (group),
   };
-  for (int i = 0; fields[i]; i++) {
-    char *lower = g_utf8_strdown (fields[i], -1);
-    gboolean match = strstr (lower, self->filter_text) != NULL;
-    g_free (lower);
-    if (match) return TRUE;
-  }
-  return FALSE;
+  return sbv_search_matches (self->filter_text, fields, G_N_ELEMENTS (fields));
 }
 
+/* Re-runs the list filter when the search entry changes. */
 static void
 on_search_changed (GtkSearchEntry *entry, gpointer user_data)
 {
   SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
   g_free (self->filter_text);
-  const char *text = gtk_editable_get_text (GTK_EDITABLE (entry));
-  self->filter_text = *text ? g_utf8_strdown (text, -1) : NULL;
+  self->filter_text = sbv_search_fold (gtk_editable_get_text (GTK_EDITABLE (entry)));
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
 }
 
@@ -375,38 +369,29 @@ add_ctx_free (AddMemberCtx *ctx)
   g_free (ctx);
 }
 
+/* Shows a user in the Add Member dialog when the search text matches. */
 static gboolean
 add_dialog_filter (GtkListBoxRow *row, gpointer user_data)
 {
-  AddMemberCtx *ctx = user_data;
-  if (!ctx->filter_text || !*ctx->filter_text) return TRUE;
-
-  SbvUser *user = g_object_get_data (G_OBJECT (row), "sbv-user");
+  AddMemberCtx *ctx  = user_data;
+  SbvUser      *user = g_object_get_data (G_OBJECT (row), "sbv-user");
   if (!user) return TRUE;
 
   const char *fields[] = {
     sbv_user_get_display_name (user),
     sbv_user_get_cn (user),
     sbv_user_get_sam (user),
-    NULL
   };
-  for (int i = 0; fields[i]; i++) {
-    if (!fields[i]) continue;
-    char *lower = g_utf8_strdown (fields[i], -1);
-    gboolean m = strstr (lower, ctx->filter_text) != NULL;
-    g_free (lower);
-    if (m) return TRUE;
-  }
-  return FALSE;
+  return sbv_search_matches (ctx->filter_text, fields, G_N_ELEMENTS (fields));
 }
 
+/* Re-runs the dialog's list filter when its search entry changes. */
 static void
 on_add_dialog_search_changed (GtkSearchEntry *entry, gpointer user_data)
 {
   AddMemberCtx *ctx = user_data;
   g_free (ctx->filter_text);
-  const char *text = gtk_editable_get_text (GTK_EDITABLE (entry));
-  ctx->filter_text = *text ? g_utf8_strdown (text, -1) : NULL;
+  ctx->filter_text = sbv_search_fold (gtk_editable_get_text (GTK_EDITABLE (entry)));
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (ctx->list_box));
 }
 
