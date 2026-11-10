@@ -25,6 +25,8 @@ struct _SbvUser {
   gboolean    locked_out;
   gint64      lockout_end;   /* FILETIME; 0 = unknown; G_MAXINT64 = until unlocked */
   gboolean    password_expired;
+  char      **member_of;        /* memberOf DNs, owned */
+  gint        primary_group_id; /* RID; -1 = not set */
   /* Windows profile */
   char       *home_directory;
   char       *home_drive;
@@ -55,6 +57,7 @@ sbv_user_finalize (GObject *object)
   g_free (self->home_drive);
   g_free (self->script_path);
   g_free (self->profile_path);
+  g_strfreev (self->member_of);
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   G_OBJECT_CLASS (sbv_user_parent_class)->finalize (object);
 }
@@ -67,6 +70,7 @@ sbv_user_init (SbvUser *self)
   self->enabled         = TRUE;
   self->account_expires = G_MAXINT64;
   self->uid_number      = -1;
+  self->primary_group_id = -1;
   self->gid_number      = -1;
 }
 
@@ -162,6 +166,12 @@ sbv_user_password_expired (gint64 uac, gint64 pwd_last_set,
   if (pwd_last_set > G_MAXINT64 - span) return FALSE;
   return now >= pwd_last_set + span;
 }
+
+/* Group membership accessors */
+const char * const *sbv_user_get_member_of (SbvUser *self) { return (const char * const *) self->member_of; }
+gint  sbv_user_get_primary_group_id (SbvUser *self) { return self->primary_group_id; }
+void  sbv_user_set_member_of        (SbvUser *self, char **dns) { g_strfreev (self->member_of); self->member_of = dns; }
+void  sbv_user_set_primary_group_id (SbvUser *self, gint rid) { self->primary_group_id = rid; }
 
 /* Windows profile accessors */
 void sbv_user_set_home_directory  (SbvUser *self, const char *v) { g_free (self->home_directory); self->home_directory = g_strdup (v); }

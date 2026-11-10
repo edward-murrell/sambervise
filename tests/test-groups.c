@@ -86,6 +86,16 @@ test_group_members_replaced (void)
   g_object_unref (group);
 }
 
+/* Well-known primary group RIDs map to their default names. */
+static void
+test_well_known_name (void)
+{
+  g_assert_cmpstr (sbv_group_well_known_name (513), ==, "Domain Users");
+  g_assert_cmpstr (sbv_group_well_known_name (515), ==, "Domain Computers");
+  g_assert_null   (sbv_group_well_known_name (1105));
+  g_assert_null   (sbv_group_well_known_name (-1));
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -93,5 +103,6 @@ main (int argc, char *argv[])
   g_test_add_func ("/group/properties",        test_group_properties);
   g_test_add_func ("/group/rfc2307",           test_group_rfc2307);
   g_test_add_func ("/group/members_replaced",  test_group_members_replaced);
+  g_test_add_func ("/group/well-known-name", test_well_known_name);
   return g_test_run ();
 }

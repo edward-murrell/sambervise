@@ -93,6 +93,8 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
     "uidNumber", "gidNumber", "loginShell", "unixHomeDirectory", "gecos",
     /* Windows profile */
     "homeDirectory", "homeDrive", "scriptPath", "profilePath",
+    /* Group membership */
+    "memberOf", "primaryGroupID",
     NULL
   };
 
@@ -181,6 +183,19 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
         sbv_user_set_account_expires (user, (expires == 0) ? G_MAXINT64 : expires);
       }
       ldap_value_free_len (bv);
+
+      /* memberOf (multi-valued) and the primary group's RID */
+      bv = ldap_get_values_len (ld, entry, "memberOf");
+      if (bv) {
+        int    count = ldap_count_values_len (bv);
+        char **dns   = g_new0 (char *, count + 1);
+        for (int i = 0; i < count; i++)
+          dns[i] = g_strndup (bv[i]->bv_val, bv[i]->bv_len);
+        sbv_user_set_member_of (user, dns);
+        ldap_value_free_len (bv);
+      }
+      sbv_user_set_primary_group_id (user,
+          (gint) entry_int64 (ld, entry, "primaryGroupID", -1));
 
       /* RFC2307 / POSIX attributes */
       bv = ldap_get_values_len (ld, entry, "uidNumber");

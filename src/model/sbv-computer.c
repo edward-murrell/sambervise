@@ -14,6 +14,8 @@ struct _SbvComputer {
   gint64   uac;
   gint64   pwd_last_set;
   char   **spn;          /* GStrv of servicePrincipalName values, owned */
+  char   **member_of;    /* memberOf DNs, owned */
+  gint     primary_group_id; /* RID; -1 = not set */
   /* Raw LDAP attribute dump — char* → GStrv, owned */
   GHashTable *ldap_attrs;
 };
@@ -33,6 +35,7 @@ sbv_computer_finalize (GObject *object)
   g_free (self->os_version);
   g_free (self->os_service_pack);
   g_strfreev (self->spn);
+  g_strfreev (self->member_of);
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   G_OBJECT_CLASS (sbv_computer_parent_class)->finalize (object);
 }
@@ -45,7 +48,8 @@ static void sbv_computer_class_init (SbvComputerClass *klass)
 static void
 sbv_computer_init (SbvComputer *self)
 {
-  self->enabled = TRUE;
+  self->enabled          = TRUE;
+  self->primary_group_id = -1;
 }
 
 SbvComputer *
@@ -105,3 +109,9 @@ sbv_computer_set_ldap_attrs (SbvComputer *self, GHashTable *attrs)
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   self->ldap_attrs = attrs;
 }
+
+/* Group membership accessors */
+const char * const *sbv_computer_get_member_of (SbvComputer *self) { return (const char * const *) self->member_of; }
+gint  sbv_computer_get_primary_group_id (SbvComputer *self) { return self->primary_group_id; }
+void  sbv_computer_set_member_of        (SbvComputer *self, char **dns) { g_strfreev (self->member_of); self->member_of = dns; }
+void  sbv_computer_set_primary_group_id (SbvComputer *self, gint rid) { self->primary_group_id = rid; }

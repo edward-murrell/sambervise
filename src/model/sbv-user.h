@@ -85,6 +85,13 @@ void        sbv_user_set_profile_path    (SbvUser *self, const char *path);
 /* Turns a drive letter such as "h" or "H:" into "H:". Returns NULL when
  * the text isn't a single letter with an optional colon. Caller frees. */
 char       *sbv_user_normalise_home_drive (const char *drive);
+/* Group membership. member_of holds the memberOf DNs, which leave out
+ * the primary group. primary_group_id is the primary group's RID, or -1
+ * when it isn't set. set_member_of takes ownership of the vector. */
+const char * const *sbv_user_get_member_of        (SbvUser *self);
+gint                sbv_user_get_primary_group_id (SbvUser *self);
+void                sbv_user_set_member_of        (SbvUser *self, char **dns);
+void                sbv_user_set_primary_group_id (SbvUser *self, gint rid);
 /* Raw LDAP attributes — GHashTable<char*,GStrv>; takes/returns ownership */
 GHashTable *sbv_user_get_ldap_attrs      (SbvUser *self);
 void        sbv_user_set_ldap_attrs      (SbvUser *self, GHashTable *attrs);

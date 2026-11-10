@@ -3,6 +3,8 @@ sambervise (0.6.0) UNRELEASED; urgency=medium
   * Add Disabled, Locked and Expired filters to the Users list, and a
     Disabled filter to the Computers list.
   * Tag users whose password has expired.
+  * Add a Member Of section to users and computers, with Add to Group
+    and Remove.
   * Fix search missing groups, computers and users with empty fields.
 
  -- Edward Murrell <edward@murrell.co.nz>  Tue, 10 Nov 2026 14:17:52 +1100

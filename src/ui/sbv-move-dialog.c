@@ -59,17 +59,6 @@ on_window_destroy (GtkWidget *win, gpointer user_data)
   ctx_unref (ctx);
 }
 
-/* Move button "destroy": the window is closing. GTK destroys the header
- * bar before the list box, and the list box then emits "row-selected"
- * with no row. Disconnect now so that late signal can't reach move_btn. */
-static void
-on_move_btn_destroy (GtkWidget *btn, gpointer user_data)
-{
-  (void) btn;
-  MoveCtx *ctx = user_data;
-  g_signal_handlers_disconnect_by_data (ctx->list_box, ctx);
-}
-
 /* Toggles busy state while the move is in flight. */
 static void
 set_busy (MoveCtx *ctx, gboolean busy)
@@ -119,14 +108,24 @@ on_search_changed (GtkSearchEntry *entry, gpointer user_data)
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (ctx->list_box));
 }
 
-/* Only allow Move once a destination is picked. */
+/* Only allow Move once a destination is picked. Connected with
+ * g_signal_connect_object on the button, so GLib drops it once the button
+ * is gone. The list box can outlive the button while the window closes. */
 static void
 on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
 {
   (void) lb;
-  MoveCtx *ctx = user_data;
-  gtk_widget_set_visible (ctx->error_label, FALSE);
-  gtk_widget_set_sensitive (ctx->move_btn, row != NULL);
+  gtk_widget_set_sensitive (GTK_WIDGET (user_data), row != NULL);
+}
+
+/* Hides the inline error once a new destination is picked. Connected on
+ * the error label in the same way as on_row_selected. */
+static void
+on_row_selected_clear_error (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
+{
+  (void) lb;
+  (void) row;
+  gtk_widget_set_visible (GTK_WIDGET (user_data), FALSE);
 }
 
 /* Async-completion for the container list: build one row per container,
@@ -280,8 +279,6 @@ sbv_move_dialog_show (GtkWindow       *parent,
   gtk_widget_add_css_class (ctx->move_btn, "suggested-action");
   gtk_widget_set_sensitive (ctx->move_btn, FALSE);
   adw_header_bar_pack_end (ADW_HEADER_BAR (header), ctx->move_btn);
-  g_signal_connect (ctx->move_btn, "destroy",
-                    G_CALLBACK (on_move_btn_destroy), ctx);
   g_signal_connect (ctx->move_btn, "clicked",
                     G_CALLBACK (on_move_clicked), ctx);
 
@@ -329,8 +326,8 @@ sbv_move_dialog_show (GtkWindow       *parent,
     gtk_list_box_set_filter_func (GTK_LIST_BOX (ctx->list_box),
                                   filter_func, ctx, NULL);
     gtk_widget_add_css_class (ctx->list_box, "boxed-list");
-    g_signal_connect (ctx->list_box, "row-selected",
-                      G_CALLBACK (on_row_selected), ctx);
+    g_signal_connect_object (ctx->list_box, "row-selected",
+                             G_CALLBACK (on_row_selected), ctx->move_btn, 0);
     g_signal_connect (ctx->list_box, "row-activated",
                       G_CALLBACK (on_row_activated), ctx);
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroll), ctx->list_box);
@@ -345,6 +342,9 @@ sbv_move_dialog_show (GtkWindow       *parent,
   gtk_widget_add_css_class (ctx->error_label, "error");
   gtk_widget_set_visible (ctx->error_label, FALSE);
   gtk_box_append (GTK_BOX (body), ctx->error_label);
+  g_signal_connect_object (ctx->list_box, "row-selected",
+                           G_CALLBACK (on_row_selected_clear_error),
+                           ctx->error_label, 0);
 
   gtk_box_append (GTK_BOX (vbox), body);
   gtk_window_set_child (GTK_WINDOW (win), vbox);

@@ -1,5 +1,6 @@
 #include "sbv-computers-panel.h"
 #include "sbv-move-dialog.h"
+#include "sbv-member-of.h"
 #include "sbv-create-computer-dialog.h"
 #include "../backend/sbv-computers-backend.h"
 #include "../model/sbv-computer.h"
@@ -38,6 +39,7 @@ struct _SbvComputersPanel {
   GtkWidget     *enabled_check;
   GtkWidget     *save_btn;
   GtkWidget     *save_error;
+  GtkWidget     *member_of;
 
   /* SPN editor */
   GtkWidget     *spn_warning_label;  /* shown when pwdLastSet == 0 */
@@ -70,6 +72,9 @@ struct _SbvComputersPanel {
 };
 
 G_DEFINE_TYPE (SbvComputersPanel, sbv_computers_panel, GTK_TYPE_BOX)
+
+enum { SIGNAL_MEMBERSHIP_CHANGED, N_SIGNALS };
+static guint signals[N_SIGNALS];
 
 /* ── Forward declarations ───────────────────────────────────────────────── */
 static void populate_raw_attrs      (GtkWidget *box, GHashTable *attrs, int label_width);
@@ -227,6 +232,11 @@ load_computer_into_detail (SbvComputersPanel *self, SbvComputer *computer)
     gtk_label_set_text (GTK_LABEL (self->delete_error), "");
     gtk_widget_set_visible (self->delete_error, FALSE);
   }
+
+  sbv_member_of_set (SBV_MEMBER_OF (self->member_of), self->conn,
+                     sbv_computer_get_dn (computer),
+                     sbv_computer_get_member_of (computer),
+                     sbv_computer_get_primary_group_id (computer));
 
   gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "detail");
 }
@@ -830,6 +840,17 @@ sbv_computers_panel_load (SbvComputersPanel *self, SbvConnection *conn)
   sbv_computers_list_async (conn, NULL, on_computers_loaded, self);
 }
 
+/* Reloads the list after a group membership change, keeping the
+ * computer selected so the Member Of section shows the new state. */
+static void
+on_member_of_changed (SbvMemberOf *section, gpointer user_data)
+{
+  (void) section;
+  SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
+  if (self->conn) sbv_computers_panel_load (self, self->conn);
+  g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
+}
+
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
 static GtkWidget *
@@ -954,9 +975,14 @@ sbv_computers_panel_finalize (GObject *object)
   G_OBJECT_CLASS (sbv_computers_panel_parent_class)->finalize (object);
 }
 
+/* Registers finalize and the "membership-changed" signal, which fires
+ * after a computer joins or leaves a group, so the window can reload panels that show the other side. */
 static void sbv_computers_panel_class_init (SbvComputersPanelClass *klass)
 {
   G_OBJECT_CLASS (klass)->finalize = sbv_computers_panel_finalize;
+  signals[SIGNAL_MEMBERSHIP_CHANGED] =
+    g_signal_new ("membership-changed", G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
 }
 
 static void
@@ -1162,6 +1188,15 @@ sbv_computers_panel_init (SbvComputersPanel *self)
     gtk_widget_set_visible (self->save_error, FALSE);
     gtk_box_append (GTK_BOX (save_box), self->save_error);
     gtk_box_append (GTK_BOX (form), save_box);
+
+    /* ── Member Of ── */
+    gtk_box_append (GTK_BOX (form),
+                    gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append (GTK_BOX (form), make_section_label ("Member Of"));
+    self->member_of = sbv_member_of_new ();
+    g_signal_connect (self->member_of, "changed",
+                      G_CALLBACK (on_member_of_changed), self);
+    gtk_box_append (GTK_BOX (form), self->member_of);
 
     /* ── Service Principal Names (editable) ── */
     gtk_box_append (GTK_BOX (form),

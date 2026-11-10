@@ -407,6 +407,29 @@ on_directory_changed (SbvOusPanel *panel, gpointer user_data)
   sbv_ldap_panel_load      (self->ldap_panel,      self->conn);
 }
 
+/* A user or computer joined or left a group, so the Groups panel's member
+ * lists are stale. */
+static void
+on_account_membership_changed (GtkWidget *panel, gpointer user_data)
+{
+  (void) panel;
+  SbvWindow *self = SBV_WINDOW (user_data);
+  if (!self->conn) return;
+  sbv_groups_panel_load (self->groups_panel, self->conn);
+}
+
+/* A group's members changed, or a group was deleted, so the Member Of
+ * sections on users and computers are stale. */
+static void
+on_group_membership_changed (SbvGroupsPanel *panel, gpointer user_data)
+{
+  (void) panel;
+  SbvWindow *self = SBV_WINDOW (user_data);
+  if (!self->conn) return;
+  sbv_users_panel_load     (self->users_panel,     self->conn);
+  sbv_computers_panel_load (self->computers_panel, self->conn);
+}
+
 /* "win.refresh" (header button, F5, Ctrl+R): re-read every panel from the
  * DC. Each panel keeps its selection and drops unsaved edits. The Raw LDAP
  * panel re-reads the open entry and keeps its tree. */
@@ -541,6 +564,12 @@ sbv_window_init (SbvWindow *self)
                     G_CALLBACK (on_nav_row_selected), self);
   g_signal_connect (self->ous_panel,     "directory-changed",
                     G_CALLBACK (on_directory_changed), self);
+  g_signal_connect (self->users_panel,     "membership-changed",
+                    G_CALLBACK (on_account_membership_changed), self);
+  g_signal_connect (self->computers_panel, "membership-changed",
+                    G_CALLBACK (on_account_membership_changed), self);
+  g_signal_connect (self->groups_panel,    "membership-changed",
+                    G_CALLBACK (on_group_membership_changed), self);
 }
 
 GtkWidget *

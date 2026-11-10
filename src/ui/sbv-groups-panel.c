@@ -75,6 +75,9 @@ struct _SbvGroupsPanel {
 
 G_DEFINE_TYPE (SbvGroupsPanel, sbv_groups_panel, GTK_TYPE_BOX)
 
+enum { SIGNAL_MEMBERSHIP_CHANGED, N_SIGNALS };
+static guint signals[N_SIGNALS];
+
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
 static char *
@@ -277,6 +280,7 @@ on_remove_done (GObject *source, GAsyncResult *result, gpointer user_data)
     g_error_free (err);
   } else {
     sbv_groups_panel_load (self, conn);
+    g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
   }
 
   g_free (ctx->member_dn);
@@ -359,7 +363,6 @@ typedef struct {
   GtkWidget      *add_btn;
   GtkWidget      *search_entry;
   char           *filter_text;
-  SbvUser        *selected;   /* unowned — points into row data */
 } AddMemberCtx;
 
 static void
@@ -395,13 +398,14 @@ on_add_dialog_search_changed (GtkSearchEntry *entry, gpointer user_data)
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (ctx->list_box));
 }
 
+/* Enables Add only while a user is selected. Connected with
+ * g_signal_connect_object on the button, so GLib drops it once the button
+ * is gone. The list box can outlive the button while the dialog closes. */
 static void
 on_add_dialog_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
 {
   (void) lb;
-  AddMemberCtx *ctx = user_data;
-  ctx->selected = row ? g_object_get_data (G_OBJECT (row), "sbv-user") : NULL;
-  gtk_widget_set_sensitive (ctx->add_btn, ctx->selected != NULL);
+  gtk_widget_set_sensitive (GTK_WIDGET (user_data), row != NULL);
 }
 
 typedef struct {
@@ -424,10 +428,13 @@ on_add_member_done (GObject *source, GAsyncResult *result, gpointer user_data)
     gtk_widget_set_visible (self->member_error, TRUE);
     g_error_free (err);
   } else {
-    gtk_window_destroy (ctx->dialog);
+    if (ctx->dialog) gtk_window_destroy (ctx->dialog);
     sbv_groups_panel_load (self, conn);
+    g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
   }
 
+  if (ctx->dialog)
+    g_object_remove_weak_pointer (G_OBJECT (ctx->dialog), (gpointer *) &ctx->dialog);
   g_free (ctx->member_dn);
   g_free (ctx->member_name);
   g_free (ctx);
@@ -438,18 +445,23 @@ on_add_btn_clicked (GtkButton *btn, gpointer user_data)
 {
   (void) btn;
   AddMemberCtx *ctx = user_data;
-  if (!ctx->selected || !ctx->panel->conn || !ctx->panel->selected_group) return;
+  GtkListBoxRow *row = gtk_list_box_get_selected_row (GTK_LIST_BOX (ctx->list_box));
+  SbvUser *selected  = row ? g_object_get_data (G_OBJECT (row), "sbv-user") : NULL;
+  if (!selected || !ctx->panel->conn || !ctx->panel->selected_group) return;
 
-  const char *dn = sbv_user_get_dn (ctx->selected);
+  const char *dn = sbv_user_get_dn (selected);
   if (!dn) return;
 
   /* Friendly name for error reporting */
-  const char *disp = sbv_user_get_display_name (ctx->selected);
-  if (!disp || !*disp) disp = sbv_user_get_cn (ctx->selected);
+  const char *disp = sbv_user_get_display_name (selected);
+  if (!disp || !*disp) disp = sbv_user_get_cn (selected);
 
   AddDoneCtx *done_ctx   = g_new0 (AddDoneCtx, 1);
   done_ctx->panel        = ctx->panel;
   done_ctx->dialog       = ctx->dialog;
+  /* Cleared if the user closes the dialog before the add finishes. */
+  g_object_add_weak_pointer (G_OBJECT (done_ctx->dialog),
+                             (gpointer *) &done_ctx->dialog);
   done_ctx->member_dn    = g_strdup (dn);
   done_ctx->member_name  = g_strdup (disp ? disp : dn);
 
@@ -510,18 +522,6 @@ on_add_dialog_users_loaded (GObject *source, GAsyncResult *result, gpointer user
   g_object_unref (store);
 }
 
-/* Add button "destroy": the dialog is closing. The list box outlives the
- * header bar and emits a last "row-selected", so disconnect it here before
- * it can touch add_btn. */
-static void
-on_add_btn_destroy (GtkWidget *btn, gpointer user_data)
-{
-  (void) btn;
-  AddMemberCtx *ctx = user_data;
-  if (ctx->list_box)
-    g_signal_handlers_disconnect_by_data (ctx->list_box, ctx);
-}
-
 /* Dialog "destroy": free the per-dialog context. */
 static void
 on_add_dialog_destroy (GtkWidget *widget, gpointer user_data)
@@ -564,7 +564,6 @@ show_add_member_dialog (SbvGroupsPanel *self)
   gtk_widget_set_sensitive (ctx->add_btn, FALSE);
   adw_header_bar_pack_end (ADW_HEADER_BAR (header), ctx->add_btn);
   g_signal_connect (ctx->add_btn, "clicked", G_CALLBACK (on_add_btn_clicked), ctx);
-  g_signal_connect (ctx->add_btn, "destroy", G_CALLBACK (on_add_btn_destroy), ctx);
 
   gtk_box_append (GTK_BOX (vbox), header);
 
@@ -595,8 +594,9 @@ show_add_member_dialog (SbvGroupsPanel *self)
   gtk_list_box_set_filter_func (GTK_LIST_BOX (ctx->list_box),
                                  add_dialog_filter, ctx, NULL);
   gtk_widget_add_css_class (ctx->list_box, "boxed-list");
-  g_signal_connect (ctx->list_box, "row-selected",
-                    G_CALLBACK (on_add_dialog_row_selected), ctx);
+  g_signal_connect_object (ctx->list_box, "row-selected",
+                           G_CALLBACK (on_add_dialog_row_selected),
+                           ctx->add_btn, 0);
   gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scroll), ctx->list_box);
   gtk_box_append (GTK_BOX (vbox), scroll);
 
@@ -868,6 +868,7 @@ on_group_delete_done (GObject *source, GAsyncResult *result, gpointer user_data)
    * deleted entry. */
   g_clear_object (&self->selected_group);
   sbv_groups_panel_load (self, conn);
+  g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
 }
 
 /* Type-to-confirm dialog state. */
@@ -1308,9 +1309,14 @@ sbv_groups_panel_finalize (GObject *object)
   G_OBJECT_CLASS (sbv_groups_panel_parent_class)->finalize (object);
 }
 
+/* Registers finalize and the "membership-changed" signal, which fires
+ * after a group gains or loses a member, or is deleted, so the window can reload panels that show the other side. */
 static void sbv_groups_panel_class_init (SbvGroupsPanelClass *klass)
 {
   G_OBJECT_CLASS (klass)->finalize = sbv_groups_panel_finalize;
+  signals[SIGNAL_MEMBERSHIP_CHANGED] =
+    g_signal_new ("membership-changed", G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
 }
 
 static void

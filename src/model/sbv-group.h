@@ -43,4 +43,9 @@ void        sbv_group_set_member_uid   (SbvGroup *self, char **uids);
 GHashTable *sbv_group_get_ldap_attrs   (SbvGroup *self);
 void        sbv_group_set_ldap_attrs   (SbvGroup *self, GHashTable *attrs);
 
+/* Returns the name of a well-known domain group from its RID, such as
+ * "Domain Users" for 513. Returns NULL for other RIDs. Used to label a
+ * primary group without a directory lookup. */
+const char *sbv_group_well_known_name (gint64 rid);
+
 G_END_DECLS

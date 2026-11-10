@@ -35,6 +35,7 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
     "description", "dNSHostName",
     "operatingSystem", "operatingSystemVersion", "operatingSystemServicePack",
     "userAccountControl", "pwdLastSet", "servicePrincipalName",
+    "memberOf", "primaryGroupID",
     NULL
   };
 
@@ -101,6 +102,22 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
         sbv_computer_set_spn (computer, spns);
         ldap_value_free_len (bv);
       }
+
+      /* memberOf (multi-valued) and the primary group's RID */
+      bv = ldap_get_values_len (ld, entry, "memberOf");
+      if (bv) {
+        int    count = ldap_count_values_len (bv);
+        char **dns   = g_new0 (char *, count + 1);
+        for (int i = 0; i < count; i++)
+          dns[i] = g_strndup (bv[i]->bv_val, bv[i]->bv_len);
+        sbv_computer_set_member_of (computer, dns);
+        ldap_value_free_len (bv);
+      }
+      bv = ldap_get_values_len (ld, entry, "primaryGroupID");
+      if (bv && bv[0])
+        sbv_computer_set_primary_group_id (computer,
+                                           (gint) g_ascii_strtoll (bv[0]->bv_val, NULL, 10));
+      ldap_value_free_len (bv);
 
       /* Collect all raw LDAP attributes for display */
       {

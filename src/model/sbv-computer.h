@@ -39,6 +39,11 @@ void sbv_computer_set_pwd_last_set     (SbvComputer *self, gint64 val);
 void sbv_computer_set_spn              (SbvComputer *self, char **spns);
 
 /* Raw LDAP attributes — GHashTable<char*,GStrv>; takes/returns ownership */
+/* Group membership, as on SbvUser. set_member_of takes ownership. */
+const char * const *sbv_computer_get_member_of        (SbvComputer *self);
+gint                sbv_computer_get_primary_group_id (SbvComputer *self);
+void                sbv_computer_set_member_of        (SbvComputer *self, char **dns);
+void                sbv_computer_set_primary_group_id (SbvComputer *self, gint rid);
 GHashTable *sbv_computer_get_ldap_attrs (SbvComputer *self);
 void        sbv_computer_set_ldap_attrs (SbvComputer *self, GHashTable *attrs);
 

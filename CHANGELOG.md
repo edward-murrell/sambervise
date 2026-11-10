@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Users whose password has expired get an "Expired" tag in the list.
 - Group search also matches the description. Computer search also
   matches the operating system.
+- Member Of section on users and computers. It lists the groups the
+  account belongs to and its primary group. Remove takes the account out
+  of a group. "Add to Group…" opens a searchable list of groups the
+  account isn't in yet.
+- Membership changes show straight away on both sides. Changing a
+  user's or computer's groups reloads the Groups panel. Changing a
+  group's members reloads the Users and Computers panels.
 
 ### Fixed
 - Searching groups now finds a group by its account name when it has
@@ -23,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Add Member dialog now finds users by account name when they have
   no display name.
 - Search ignores spaces before and after the search text.
+- Adding or moving from the Move and Add Member dialogs no longer logs
+  a GLib warning as the dialog closes.
+- Closing the Add Member dialog while an add is still running no longer
+  risks a crash.
 
 ## [0.5.0] - 2026-11-09
 

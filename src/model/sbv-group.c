@@ -107,3 +107,19 @@ sbv_group_set_ldap_attrs (SbvGroup *self, GHashTable *attrs)
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   self->ldap_attrs = attrs;
 }
+
+/* Maps the domain-relative RIDs that appear as primary groups to their
+ * default names. */
+const char *
+sbv_group_well_known_name (gint64 rid)
+{
+  switch (rid) {
+  case 512: return "Domain Admins";
+  case 513: return "Domain Users";
+  case 514: return "Domain Guests";
+  case 515: return "Domain Computers";
+  case 516: return "Domain Controllers";
+  case 521: return "Read-only Domain Controllers";
+  default:  return NULL;
+  }
+}

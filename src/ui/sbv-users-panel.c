@@ -1,5 +1,6 @@
 #include "sbv-users-panel.h"
 #include "sbv-move-dialog.h"
+#include "sbv-member-of.h"
 #include "sbv-create-user-dialog.h"
 #include "../backend/sbv-users-backend.h"
 #include "../backend/sbv-collisions.h"
@@ -104,6 +105,9 @@ struct _SbvUsersPanel {
   GtkWidget     *save_policy_btn;
   GtkWidget     *policy_error;
 
+  /* Member Of */
+  GtkWidget     *member_of;
+
   /* State */
   SbvConnection *conn;           /* unowned */
   SbvUser       *selected_user;  /* owned ref */
@@ -118,6 +122,9 @@ struct _SbvUsersPanel {
 };
 
 G_DEFINE_TYPE (SbvUsersPanel, sbv_users_panel, GTK_TYPE_BOX)
+
+enum { SIGNAL_MEMBERSHIP_CHANGED, N_SIGNALS };
+static guint signals[N_SIGNALS];
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
@@ -376,6 +383,9 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
   gtk_check_button_set_active (GTK_CHECK_BUTTON (self->enabled_check),
                                 sbv_user_get_enabled (user));
   update_lockout_display (self, user);
+  sbv_member_of_set (SBV_MEMBER_OF (self->member_of), self->conn,
+                     sbv_user_get_dn (user), sbv_user_get_member_of (user),
+                     sbv_user_get_primary_group_id (user));
 
   /* Clear password fields */
   gtk_editable_set_text (GTK_EDITABLE (self->new_pw_entry),     "");
@@ -1330,6 +1340,17 @@ sbv_users_panel_load (SbvUsersPanel *self, SbvConnection *conn)
   sbv_users_list_async (conn, NULL, on_users_loaded, self);
 }
 
+/* Reloads the list after a group membership change, keeping the user
+ * selected so the Member Of section shows the new state. */
+static void
+on_member_of_changed (SbvMemberOf *section, gpointer user_data)
+{
+  (void) section;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  if (self->conn) sbv_users_panel_load (self, self->conn);
+  g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
+}
+
 /* ── Helper: make a form section label ──────────────────────────────────── */
 
 static GtkWidget *
@@ -1573,9 +1594,14 @@ sbv_users_panel_finalize (GObject *object)
   G_OBJECT_CLASS (sbv_users_panel_parent_class)->finalize (object);
 }
 
+/* Registers finalize and the "membership-changed" signal, which fires
+ * after a user joins or leaves a group, so the window can reload panels that show the other side. */
 static void sbv_users_panel_class_init (SbvUsersPanelClass *klass)
 {
   G_OBJECT_CLASS (klass)->finalize = sbv_users_panel_finalize;
+  signals[SIGNAL_MEMBERSHIP_CHANGED] =
+    g_signal_new ("membership-changed", G_TYPE_FROM_CLASS (klass),
+                  G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL, G_TYPE_NONE, 0);
 }
 
 static void
@@ -1893,6 +1919,15 @@ sbv_users_panel_init (SbvUsersPanel *self)
     gtk_widget_set_visible (self->policy_error, FALSE);
     gtk_box_append (GTK_BOX (policy_btn_box), self->policy_error);
     gtk_box_append (GTK_BOX (form), policy_btn_box);
+
+    /* ── Member Of ── */
+    gtk_box_append (GTK_BOX (form),
+                    gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
+    gtk_box_append (GTK_BOX (form), make_section_label ("Member Of"));
+    self->member_of = sbv_member_of_new ();
+    g_signal_connect (self->member_of, "changed",
+                      G_CALLBACK (on_member_of_changed), self);
+    gtk_box_append (GTK_BOX (form), self->member_of);
 
     /* ── Windows Profile ── */
     gtk_box_append (GTK_BOX (form),

@@ -138,6 +138,27 @@ test_user_lockout_end (void)
   g_object_unref (user);
 }
 
+/* memberOf is stored as given and the primary group defaults to unset. */
+static void
+test_member_of (void)
+{
+  SbvUser *u = sbv_user_new ();
+  g_assert_null (sbv_user_get_member_of (u));
+  g_assert_cmpint (sbv_user_get_primary_group_id (u), ==, -1);
+
+  char **dns = g_new0 (char *, 3);
+  dns[0] = g_strdup ("CN=Staff,OU=Groups,DC=example,DC=com");
+  dns[1] = g_strdup ("CN=VPN,OU=Groups,DC=example,DC=com");
+  sbv_user_set_member_of (u, dns);
+  sbv_user_set_primary_group_id (u, 513);
+
+  const char * const *got = sbv_user_get_member_of (u);
+  g_assert_cmpstr (got[1], ==, "CN=VPN,OU=Groups,DC=example,DC=com");
+  g_assert_null (got[2]);
+  g_assert_cmpint (sbv_user_get_primary_group_id (u), ==, 513);
+  g_object_unref (u);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -148,5 +169,6 @@ main (int argc, char *argv[])
   g_test_add_func ("/user/profile",    test_user_profile);
   g_test_add_func ("/user/home-drive", test_user_home_drive);
   g_test_add_func ("/user/lockout-end", test_user_lockout_end);
+  g_test_add_func ("/user/member-of", test_member_of);
   return g_test_run ();
 }

@@ -59,6 +59,8 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 - Add Disabled, Locked and Expired filters to the Users list, and a
   Disabled filter to the Computers list.
 - Tag users whose password has expired.
+- Add a Member Of section to users and computers, with Add to Group
+  and Remove.
 - Fix search missing groups, computers and users with empty fields.
 
 * Mon Nov 09 2026 Edward Murrell <edward@murrell.co.nz> - 0.5.0-1

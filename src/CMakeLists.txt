@@ -64,6 +64,7 @@ add_executable(sambervise
     ui/sbv-ous-panel.c
     ui/sbv-create-ou-dialog.c
     ui/sbv-move-dialog.c
+    ui/sbv-member-of.c
     ${GRESOURCE_C}
 )
 

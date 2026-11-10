@@ -58,10 +58,17 @@ Bug fixes ship as a patch bump.
   `lockoutDuration`. `sbv_user_get_locked_out` is ready for R2's
   "locked out" toggle.
 
-### R4. "Member Of" on users and computers  *(open)*
-- `memberOf` is a read-only back-link. Display it on the user and
-  computer panes.
-- Edit membership by modifying each group's `member` attribute.
+### R4. "Member Of" on users and computers  *(DONE in 0.6.0)*
+- Done: a shared Member Of section (`src/ui/sbv-member-of.c`) on the
+  user and computer panes. It lists `memberOf` sorted by name and the
+  primary group from `primaryGroupID`.
+- Done: Remove and "Add to Group…" modify each group's `member`
+  attribute. The picker hides groups the account is already in,
+  including its primary group.
+- Open: primary groups outside the well-known RIDs show as "RID n".
+  Changing the primary group isn't supported yet.
+- Done: panels emit "membership-changed" and the window reloads the
+  other side. A reload drops unsaved edits on the reloaded panel.
 
 ### R5. Profile fields  *(DONE in 0.5.0)*
 - Done: Windows Profile section on users for `profilePath`,
