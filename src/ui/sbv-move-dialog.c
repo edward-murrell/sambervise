@@ -219,6 +219,20 @@ on_move_clicked (GtkButton *btn, gpointer user_data)
   if (!ou) return;
 
   gtk_widget_set_visible (ctx->error_label, FALSE);
+
+  /* Pick mode: hand the destination back and let the caller move. */
+  if (!ctx->dn) {
+    char *parent_dn = g_strdup (sbv_ou_get_dn (ou));
+    SbvMoveCallback cb = ctx->callback;
+    gpointer        ud = ctx->user_data;
+    SbvConnection  *conn = g_object_ref (ctx->conn);
+    gtk_window_destroy (ctx->window);
+    if (cb) cb (conn, parent_dn, ud);
+    g_object_unref (conn);
+    g_free (parent_dn);
+    return;
+  }
+
   set_busy (ctx, TRUE);
   sbv_ou_move_object_async (ctx->conn, ctx->dn, sbv_ou_get_dn (ou),
                             NULL, on_move_done, ctx_ref (ctx));
@@ -235,15 +249,17 @@ on_row_activated (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
     on_move_clicked (NULL, ctx);
 }
 
-void
-sbv_move_dialog_show (GtkWindow       *parent,
-                      SbvConnection   *conn,
-                      const char      *dn,
-                      const char      *label,
-                      SbvMoveCallback  callback,
-                      gpointer         user_data)
+/* Builds and presents the dialog. A NULL `dn` selects pick mode, where
+ * the Move button returns the chosen container instead of moving. */
+static void
+show_dialog (GtkWindow       *parent,
+             SbvConnection   *conn,
+             const char      *dn,
+             const char      *label,
+             SbvMoveCallback  callback,
+             gpointer         user_data)
 {
-  if (!conn || !dn) return;
+  if (!conn) return;
 
   MoveCtx *ctx = g_new0 (MoveCtx, 1);
   ctx->conn      = g_object_ref (conn);
@@ -291,7 +307,7 @@ sbv_move_dialog_show (GtkWindow       *parent,
   gtk_widget_set_margin_end    (body, 16);
   gtk_widget_set_vexpand (body, TRUE);
 
-  char *esc    = g_markup_escape_text (label && *label ? label : dn, -1);
+  char *esc    = g_markup_escape_text (label && *label ? label : (dn ? dn : ""), -1);
   char *prompt = g_strdup_printf ("Move <b>%s</b> to:", esc);
   GtkWidget *prompt_lbl = gtk_label_new (NULL);
   gtk_label_set_markup (GTK_LABEL (prompt_lbl), prompt);
@@ -353,4 +369,26 @@ sbv_move_dialog_show (GtkWindow       *parent,
   gtk_widget_grab_focus (ctx->search_entry);
 
   sbv_ou_list_async (conn, NULL, on_list_loaded, ctx_ref (ctx));
+}
+
+void
+sbv_move_dialog_show (GtkWindow       *parent,
+                      SbvConnection   *conn,
+                      const char      *dn,
+                      const char      *label,
+                      SbvMoveCallback  callback,
+                      gpointer         user_data)
+{
+  if (!dn) return;
+  show_dialog (parent, conn, dn, label, callback, user_data);
+}
+
+void
+sbv_move_dialog_pick (GtkWindow       *parent,
+                      SbvConnection   *conn,
+                      const char      *label,
+                      SbvMoveCallback  callback,
+                      gpointer         user_data)
+{
+  show_dialog (parent, conn, NULL, label, callback, user_data);
 }

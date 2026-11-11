@@ -92,6 +92,22 @@ const char * const *sbv_user_get_member_of        (SbvUser *self);
 gint                sbv_user_get_primary_group_id (SbvUser *self);
 void                sbv_user_set_member_of        (SbvUser *self, char **dns);
 void                sbv_user_set_primary_group_id (SbvUser *self, gint rid);
+/* Copy-from-template helpers (R9). */
+/* userAccountControl option bits a copied user takes from its template:
+ * ENCRYPTED_TEXT_PWD_ALLOWED, DONT_EXPIRE_PASSWD, SMARTCARD_REQUIRED,
+ * NOT_DELEGATED, USE_DES_KEY_ONLY and DONT_REQ_PREAUTH. */
+#define SBV_USER_TEMPLATE_UAC_MASK \
+  (0x0080 | 0x10000 | 0x40000 | 0x100000 | 0x200000 | 0x400000)
+/* Returns new_uac with the template's option bits copied in. Every other
+ * bit, including ACCOUNTDISABLE, keeps its value from new_uac. */
+gint64      sbv_user_template_uac        (gint64 new_uac, gint64 template_uac);
+/* Rewrites a template's path for a new user. "%username%" (any case)
+ * becomes new_sam, and so does any path component equal to template_sam,
+ * with or without a trailing "$". Returns NULL for a NULL or empty path.
+ * Caller frees. */
+char       *sbv_user_template_path       (const char *path,
+                                          const char *template_sam,
+                                          const char *new_sam);
 /* Raw LDAP attributes — GHashTable<char*,GStrv>; takes/returns ownership */
 GHashTable *sbv_user_get_ldap_attrs      (SbvUser *self);
 void        sbv_user_set_ldap_attrs      (SbvUser *self, GHashTable *attrs);

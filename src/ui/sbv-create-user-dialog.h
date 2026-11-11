@@ -2,6 +2,7 @@
 
 #include <gtk/gtk.h>
 #include "../backend/sbv-connection.h"
+#include "../model/sbv-user.h"
 
 G_BEGIN_DECLS
 
@@ -19,5 +20,17 @@ void sbv_create_user_dialog_show (GtkWindow            *parent,
                                    SbvConnection        *conn,
                                    SbvCreateUserCallback callback,
                                    gpointer              user_data);
+
+/* Show the same dialog in copy mode. The container starts as the
+ * template's. After the user is created, the template's groups, Windows
+ * profile paths, account options and expiry are copied onto it (see
+ * sbv_bulk_apply_user_template_async). `callback` runs after that step,
+ * even if part of it failed. Failures are listed in the dialog, which
+ * then offers Close. */
+void sbv_create_user_dialog_show_copy (GtkWindow            *parent,
+                                        SbvConnection        *conn,
+                                        SbvUser              *template_user,
+                                        SbvCreateUserCallback callback,
+                                        gpointer              user_data);
 
 G_END_DECLS

@@ -1,6 +1,9 @@
 #include "sbv-computers-panel.h"
 #include "sbv-move-dialog.h"
 #include "sbv-member-of.h"
+#include "sbv-bulk-ui.h"
+#include "../backend/sbv-bulk.h"
+#include "../backend/sbv-dn.h"
 #include "sbv-create-computer-dialog.h"
 #include "../backend/sbv-computers-backend.h"
 #include "../model/sbv-computer.h"
@@ -21,7 +24,13 @@ struct _SbvComputersPanel {
   GtkWidget     *spinner;
 
   /* ── Detail pane ── */
-  GtkWidget     *detail_stack;   /* "none" | "detail" */
+  GtkWidget     *detail_stack;   /* "none" | "detail" | "bulk" */
+
+  /* Bulk page, shown when several computers are selected */
+  GtkWidget     *bulk_page;      /* AdwStatusPage */
+  GtkWidget     *bulk_buttons;
+  GtkWidget     *bulk_spinner;
+  GtkWidget     *bulk_selection; /* selected accounts, each removable */
 
   /* Identity (read-only) */
   GtkWidget     *dn_label;
@@ -69,6 +78,9 @@ struct _SbvComputersPanel {
   /* When non-NULL the next reload re-selects the row whose DN matches
    * (used by the create flow to highlight the new entry). */
   char          *pending_select_dn;
+  /* Lower-cased DNs to select after the next reload, set by bulk actions
+   * so the same computers stay selected. Wins over pending_select_dn. */
+  GHashTable    *reselect_dns;
 };
 
 G_DEFINE_TYPE (SbvComputersPanel, sbv_computers_panel, GTK_TYPE_BOX)
@@ -135,6 +147,8 @@ make_computer_row (SbvComputer *computer)
 
 /* Shows a row when it matches the search text and, if the Disabled
  * toggle is pressed, the computer is disabled. */
+static void refresh_bulk_count (SbvComputersPanel *self);
+
 static gboolean
 filter_func (GtkListBoxRow *row, gpointer user_data)
 {
@@ -164,6 +178,7 @@ on_search_changed (GtkSearchEntry *entry, gpointer user_data)
   g_free (self->filter_text);
   self->filter_text = sbv_search_fold (gtk_editable_get_text (GTK_EDITABLE (entry)));
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
+  refresh_bulk_count (self);
 }
 
 /* Re-runs the list filter when the Disabled toggle changes. */
@@ -173,6 +188,7 @@ on_filter_toggled (GtkToggleButton *button, gpointer user_data)
   SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
   (void) button;
   gtk_list_box_invalidate_filter (GTK_LIST_BOX (self->list_box));
+  refresh_bulk_count (self);
 }
 
 /* ── Load computer into detail form ─────────────────────────────────────── */
@@ -243,20 +259,64 @@ load_computer_into_detail (SbvComputersPanel *self, SbvComputer *computer)
 
 /* ── Row activated ──────────────────────────────────────────────────────── */
 
+/* Returns the selected computers that the filter currently shows, in
+ * list order, as owned refs. Bulk actions must not touch hidden rows. */
+static GPtrArray *
+selected_computers (SbvComputersPanel *self)
+{
+  GPtrArray *out  = g_ptr_array_new_with_free_func (g_object_unref);
+  GList     *rows = gtk_list_box_get_selected_rows (GTK_LIST_BOX (self->list_box));
+  for (GList *l = rows; l; l = l->next) {
+    GtkWidget   *row = l->data;
+    SbvComputer *c   = g_object_get_data (G_OBJECT (row), "sbv-computer");
+    if (c && gtk_widget_get_child_visible (row))
+      g_ptr_array_add (out, g_object_ref (c));
+  }
+  g_list_free (rows);
+  return out;
+}
+
+/* Label for a computer row in the bulk page's selection list. */
+static char *
+computer_row_name (GtkListBoxRow *row)
+{
+  SbvComputer *c    = g_object_get_data (G_OBJECT (row), "sbv-computer");
+  const char  *name = c ? sbv_computer_get_cn (c) : NULL;
+  if (c && (!name || !*name)) name = sbv_computer_get_sam (c);
+  return g_strdup (name ? name : "?");
+}
+
+/* Shows the detail form for one computer, the bulk page for several, or
+ * the empty page for none. */
 static void
-on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
+on_selection_changed (GtkListBox *lb, gpointer user_data)
 {
   (void) lb;
   SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
+  GPtrArray         *sel  = selected_computers (self);
 
-  if (!row) {
+  if (sel->len == 0) {
     gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "none");
-    return;
+  } else if (sel->len == 1) {
+    load_computer_into_detail (self, g_ptr_array_index (sel, 0));
+  } else {
+    char *title = g_strdup_printf ("%u Computers Selected", sel->len);
+    adw_status_page_set_title (ADW_STATUS_PAGE (self->bulk_page), title);
+    g_free (title);
+    sbv_bulk_ui_selection_update (self->bulk_selection, computer_row_name);
+    gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "bulk");
   }
+  g_ptr_array_unref (sel);
+}
 
-  SbvComputer *computer = g_object_get_data (G_OBJECT (row), "sbv-computer");
-  if (computer)
-    load_computer_into_detail (self, computer);
+/* Keeps the bulk page's count in step with the filter. Leaves the detail
+ * form alone so a filter change can't discard unsaved edits. */
+static void
+refresh_bulk_count (SbvComputersPanel *self)
+{
+  const char *page = gtk_stack_get_visible_child_name (GTK_STACK (self->detail_stack));
+  if (g_strcmp0 (page, "bulk") == 0)
+    on_selection_changed (NULL, self);
 }
 
 /* ── Save attributes ────────────────────────────────────────────────────── */
@@ -787,9 +847,13 @@ on_computers_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
   /* Decide what to re-select. pending_select_dn (set by the create flow)
    * wins, matched by full DN; otherwise fall back to selected_computer's
    * sam which preserves selection across normal save reloads. */
-  char *target_dn  = NULL;
-  char *target_sam = NULL;
-  if (self->pending_select_dn) {
+  char       *target_dn  = NULL;
+  char       *target_sam = NULL;
+  GHashTable *want       = self->reselect_dns;   /* takes ownership */
+  self->reselect_dns = NULL;
+  if (want) {
+    g_clear_pointer (&self->pending_select_dn, g_free);
+  } else if (self->pending_select_dn) {
     target_dn = self->pending_select_dn;        /* takes ownership */
     self->pending_select_dn = NULL;
   } else if (self->selected_computer) {
@@ -802,12 +866,17 @@ on_computers_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
 
   guint n = g_list_model_get_n_items (G_LIST_MODEL (store));
   GtkListBoxRow *reselect = NULL;
+  GPtrArray     *many     = g_ptr_array_new ();
 
   for (guint i = 0; i < n; i++) {
     SbvComputer *computer = g_list_model_get_item (G_LIST_MODEL (store), i);
     GtkWidget   *row      = make_computer_row (computer);
     gtk_list_box_append (GTK_LIST_BOX (self->list_box), row);
-    if (!reselect) {
+    if (want) {
+      char *key = g_ascii_strdown (sbv_computer_get_dn (computer) ?: "", -1);
+      if (g_hash_table_contains (want, key)) g_ptr_array_add (many, row);
+      g_free (key);
+    } else if (!reselect) {
       if (target_dn && g_str_equal (sbv_computer_get_dn (computer) ?: "", target_dn))
         reselect = GTK_LIST_BOX_ROW (row);
       else if (target_sam && g_str_equal (sbv_computer_get_sam (computer) ?: "", target_sam))
@@ -824,9 +893,13 @@ on_computers_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
                                      n == 0 ? "empty" : "split");
 
   if (reselect)
-    gtk_list_box_select_row (GTK_LIST_BOX (self->list_box), reselect);
-  else
+    g_ptr_array_add (many, reselect);
+  for (guint i = 0; i < many->len; i++)
+    gtk_list_box_select_row (GTK_LIST_BOX (self->list_box), g_ptr_array_index (many, i));
+  if (many->len == 0)
     gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "none");
+  g_ptr_array_unref (many);
+  if (want) g_hash_table_unref (want);
 }
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
@@ -945,6 +1018,7 @@ on_moved (SbvConnection *conn, const char *new_dn, gpointer user_data)
   g_free (self->pending_select_dn);
   self->pending_select_dn = g_strdup (new_dn);
   sbv_computers_panel_load (self, conn);
+  g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
 }
 
 /* "Move…" button beside the DN: pick a new OU or container for the
@@ -962,6 +1036,223 @@ on_move_clicked (GtkButton *btn, gpointer user_data)
                         on_moved, self);
 }
 
+/* ── Bulk actions (R8) ──────────────────────────────────────────────────── */
+
+/* State for one bulk run. Holds a ref on the panel until it finishes. */
+typedef struct {
+  SbvComputersPanel *self;
+  char              *done_text;
+  GHashTable        *reselect;   /* lower-cased DNs to select afterwards */
+  gboolean           moved;
+} BulkRun;
+
+/* Greys out the bulk buttons and shows the spinner while a run is on. */
+static void
+set_bulk_busy (SbvComputersPanel *self, gboolean busy)
+{
+  gtk_widget_set_sensitive (self->bulk_buttons, !busy);
+  gtk_widget_set_visible (self->bulk_spinner, busy);
+  if (busy) gtk_spinner_start (GTK_SPINNER (self->bulk_spinner));
+  else      gtk_spinner_stop  (GTK_SPINNER (self->bulk_spinner));
+}
+
+/* Bulk completion: report, then reload with the same computers selected.
+ * A move changes DNs the Groups panel shows, so it signals that too. */
+static void
+on_bulk_done (GObject *source, GAsyncResult *result, gpointer user_data)
+{
+  BulkRun           *run  = user_data;
+  SbvComputersPanel *self = run->self;
+  GError            *err  = NULL;
+
+  SbvBulkResult *r = sbv_bulk_run_finish (SBV_CONNECTION (source), result, &err);
+  set_bulk_busy (self, FALSE);
+  if (!r) {
+    GtkWidget *win = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+    GtkWidget *dlg = adw_message_dialog_new (win ? GTK_WINDOW (win) : NULL,
+                                             "Couldn't start", err->message);
+    adw_message_dialog_add_response (ADW_MESSAGE_DIALOG (dlg), "close", "_Close");
+    gtk_window_present (GTK_WINDOW (dlg));
+    g_error_free (err);
+  } else {
+    sbv_bulk_ui_report (GTK_WIDGET (self), run->done_text, r);
+    sbv_bulk_result_free (r);
+    g_clear_pointer (&self->reselect_dns, g_hash_table_unref);
+    self->reselect_dns = g_steal_pointer (&run->reselect);
+    if (self->conn) sbv_computers_panel_load (self, self->conn);
+    if (run->moved) g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
+  }
+
+  g_free (run->done_text);
+  if (run->reselect) g_hash_table_unref (run->reselect);
+  g_object_unref (self);
+  g_free (run);
+}
+
+/* Runs `action` on the selected computers. `verb` starts the toast. For a
+ * move, `arg` is the destination and the new DNs join the reselect set. */
+static void
+start_bulk (SbvComputersPanel *self, SbvBulkAction action, const char *verb,
+            const char *arg)
+{
+  GPtrArray *sel = selected_computers (self);
+  if (sel->len == 0 || !self->conn) {
+    g_ptr_array_unref (sel);
+    return;
+  }
+
+  BulkRun *run   = g_new0 (BulkRun, 1);
+  run->self      = g_object_ref (self);
+  run->moved     = (action == SBV_BULK_MOVE);
+  run->reselect  = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  run->done_text = g_strdup_printf ("%s %u computer%s", verb, sel->len,
+                                    sel->len == 1 ? "" : "s");
+
+  char **dns = g_new0 (char *, sel->len + 1);
+  for (guint i = 0; i < sel->len; i++) {
+    const char *dn = sbv_computer_get_dn (g_ptr_array_index (sel, i));
+    dns[i] = g_strdup (dn);
+    g_hash_table_add (run->reselect, g_ascii_strdown (dn, -1));
+    char *rdn = NULL;
+    if (run->moved && sbv_dn_split (dn, &rdn, NULL)) {
+      char *moved = g_strdup_printf ("%s,%s", rdn, arg);
+      g_hash_table_add (run->reselect, g_ascii_strdown (moved, -1));
+      g_free (moved);
+    }
+    g_free (rdn);
+  }
+  g_ptr_array_unref (sel);
+
+  set_bulk_busy (self, TRUE);
+  sbv_bulk_run_async (self->conn, action, (const char * const *) dns, arg,
+                      FALSE, NULL, on_bulk_done, run);
+  g_strfreev (dns);
+}
+
+/* Names of the selected computers for confirmations. Caller frees. */
+static char **
+selected_names (SbvComputersPanel *self)
+{
+  GPtrArray *sel   = selected_computers (self);
+  char     **names = g_new0 (char *, sel->len + 1);
+  for (guint i = 0; i < sel->len; i++) {
+    SbvComputer *c    = g_ptr_array_index (sel, i);
+    const char  *name = sbv_computer_get_cn (c);
+    if (!name || !*name) name = sbv_computer_get_sam (c);
+    names[i] = g_strdup (name ? name : "?");
+  }
+  g_ptr_array_unref (sel);
+  return names;
+}
+
+/* Asks to confirm, then runs `accept`. `heading_fmt` takes the count. */
+static void
+confirm_bulk (SbvComputersPanel *self, const char *heading_fmt,
+              const char *accept_label, gboolean destructive,
+              SbvBulkAcceptFn accept)
+{
+  char **names   = selected_names (self);
+  char  *heading = g_strdup_printf (heading_fmt, g_strv_length (names));
+  sbv_bulk_ui_confirm (GTK_WIDGET (self), heading, accept_label, destructive,
+                       (const char * const *) names, accept, self);
+  g_free (heading);
+  g_strfreev (names);
+}
+
+/* Confirmed: enable the selected computers. */
+static void
+bulk_enable_accepted (gpointer user_data)
+{
+  start_bulk (SBV_COMPUTERS_PANEL (user_data), SBV_BULK_ENABLE, "Enabled", NULL);
+}
+
+/* Confirmed: disable the selected computers. */
+static void
+bulk_disable_accepted (gpointer user_data)
+{
+  start_bulk (SBV_COMPUTERS_PANEL (user_data), SBV_BULK_DISABLE, "Disabled", NULL);
+}
+
+/* Destination picked: move the selected computers there. */
+static void
+bulk_move_picked (SbvConnection *conn, const char *parent_dn, gpointer user_data)
+{
+  (void) conn;
+  start_bulk (SBV_COMPUTERS_PANEL (user_data), SBV_BULK_MOVE, "Moved", parent_dn);
+}
+
+/* Bulk "Enable" button. */
+static void
+on_bulk_enable_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  confirm_bulk (SBV_COMPUTERS_PANEL (user_data), "Enable %u computers?",
+                "_Enable", FALSE, bulk_enable_accepted);
+}
+
+/* Bulk "Disable" button. */
+static void
+on_bulk_disable_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  confirm_bulk (SBV_COMPUTERS_PANEL (user_data), "Disable %u computers?",
+                "_Disable", TRUE, bulk_disable_accepted);
+}
+
+/* Bulk "Move…" button: pick a destination, then move. */
+static void
+on_bulk_move_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvComputersPanel *self = SBV_COMPUTERS_PANEL (user_data);
+  GPtrArray         *sel  = selected_computers (self);
+  char              *label = g_strdup_printf ("%u computers", sel->len);
+  GtkWidget         *win  = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  sbv_move_dialog_pick (win ? GTK_WINDOW (win) : NULL, self->conn, label,
+                        bulk_move_picked, self);
+  g_free (label);
+  g_ptr_array_unref (sel);
+}
+
+/* Builds the page shown when several computers are selected. */
+static GtkWidget *
+build_bulk_page (SbvComputersPanel *self)
+{
+  self->bulk_page = adw_status_page_new ();
+  adw_status_page_set_icon_name (ADW_STATUS_PAGE (self->bulk_page),
+                                 "computer-symbolic");
+  adw_status_page_set_description (ADW_STATUS_PAGE (self->bulk_page),
+      "Ctrl+click adds or removes a computer. Shift+click selects a range. Use − below to drop one. "
+      "Actions apply only to computers the current search and filter show.");
+
+  GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
+  gtk_widget_set_halign (vbox, GTK_ALIGN_CENTER);
+
+  self->bulk_buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  struct { const char *label; GCallback cb; } btns[] = {
+    { "Enable",  G_CALLBACK (on_bulk_enable_clicked)  },
+    { "Disable", G_CALLBACK (on_bulk_disable_clicked) },
+    { "Move…",   G_CALLBACK (on_bulk_move_clicked)    },
+  };
+  for (gsize i = 0; i < G_N_ELEMENTS (btns); i++) {
+    GtkWidget *b = gtk_button_new_with_label (btns[i].label);
+    gtk_widget_add_css_class (b, "pill");
+    g_signal_connect (b, "clicked", btns[i].cb, self);
+    gtk_box_append (GTK_BOX (self->bulk_buttons), b);
+  }
+  gtk_box_append (GTK_BOX (vbox), self->bulk_buttons);
+
+  self->bulk_spinner = gtk_spinner_new ();
+  gtk_widget_set_visible (self->bulk_spinner, FALSE);
+  gtk_box_append (GTK_BOX (vbox), self->bulk_spinner);
+
+  self->bulk_selection = sbv_bulk_ui_selection_new (GTK_LIST_BOX (self->list_box));
+  gtk_box_append (GTK_BOX (vbox), self->bulk_selection);
+
+  adw_status_page_set_child (ADW_STATUS_PAGE (self->bulk_page), vbox);
+  return self->bulk_page;
+}
+
 /* ── GObject init ───────────────────────────────────────────────────────── */
 
 static void
@@ -970,13 +1261,15 @@ sbv_computers_panel_finalize (GObject *object)
   SbvComputersPanel *self = SBV_COMPUTERS_PANEL (object);
   g_free (self->filter_text);
   g_free (self->pending_select_dn);
+  g_clear_pointer (&self->reselect_dns, g_hash_table_unref);
   g_clear_object (&self->selected_computer);
   if (self->working_spns) g_ptr_array_unref (self->working_spns);
   G_OBJECT_CLASS (sbv_computers_panel_parent_class)->finalize (object);
 }
 
-/* Registers finalize and the "membership-changed" signal, which fires
- * after a computer joins or leaves a group, so the window can reload panels that show the other side. */
+/* Registers finalize and the "membership-changed" signal. It fires after
+ * a computer joins or leaves a group, or computers move, so the window
+ * can reload the Groups panel. */
 static void sbv_computers_panel_class_init (SbvComputersPanelClass *klass)
 {
   G_OBJECT_CLASS (klass)->finalize = sbv_computers_panel_finalize;
@@ -1065,7 +1358,7 @@ sbv_computers_panel_init (SbvComputersPanel *self)
 
     self->list_box = gtk_list_box_new ();
     gtk_list_box_set_selection_mode (GTK_LIST_BOX (self->list_box),
-                                      GTK_SELECTION_SINGLE);
+                                      GTK_SELECTION_MULTIPLE);
     gtk_list_box_set_filter_func (GTK_LIST_BOX (self->list_box),
                                    filter_func, self, NULL);
     GtkWidget *no_match = gtk_label_new ("No computers match");
@@ -1074,8 +1367,8 @@ sbv_computers_panel_init (SbvComputersPanel *self)
     gtk_widget_set_margin_bottom (no_match, 12);
     gtk_list_box_set_placeholder (GTK_LIST_BOX (self->list_box), no_match);
     gtk_widget_add_css_class (self->list_box, "boxed-list");
-    g_signal_connect (self->list_box, "row-selected",
-                      G_CALLBACK (on_row_selected), self);
+    g_signal_connect (self->list_box, "selected-rows-changed",
+                      G_CALLBACK (on_selection_changed), self);
     gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (list_scroll),
                                     self->list_box);
     gtk_box_append (GTK_BOX (left_box), list_scroll);
@@ -1092,6 +1385,8 @@ sbv_computers_panel_init (SbvComputersPanel *self)
     adw_status_page_set_icon_name (ADW_STATUS_PAGE (none_page),
                                     "computer-symbolic");
     gtk_stack_add_named (GTK_STACK (self->detail_stack), none_page, "none");
+    gtk_stack_add_named (GTK_STACK (self->detail_stack),
+                         build_bulk_page (self), "bulk");
 
     /* "detail" page */
     GtkWidget *detail_scroll = gtk_scrolled_window_new ();

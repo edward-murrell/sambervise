@@ -1,5 +1,7 @@
 #include "sbv-user.h"
 
+#include <string.h>
+
 struct _SbvUser {
   GObject  parent;
   char    *dn;
@@ -204,4 +206,63 @@ sbv_user_set_ldap_attrs (SbvUser *self, GHashTable *attrs)
 {
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   self->ldap_attrs = attrs;
+}
+
+/* Keeps the new account's state bits and takes only the option bits in
+ * SBV_USER_TEMPLATE_UAC_MASK from the template. */
+gint64
+sbv_user_template_uac (gint64 new_uac, gint64 template_uac)
+{
+  return (new_uac & ~(gint64) SBV_USER_TEMPLATE_UAC_MASK)
+       | (template_uac & SBV_USER_TEMPLATE_UAC_MASK);
+}
+
+/* Appends one path component, swapping it for new_sam when it names the
+ * template user, optionally as a hidden share ending in "$". */
+static void
+append_component (GString *out, const char *seg, gsize len,
+                  const char *template_sam, const char *new_sam)
+{
+  gsize tlen = template_sam ? strlen (template_sam) : 0;
+  if (tlen > 0 && (len == tlen || (len == tlen + 1 && seg[tlen] == '$'))
+      && g_ascii_strncasecmp (seg, template_sam, tlen) == 0) {
+    g_string_append (out, new_sam);
+    if (len > tlen) g_string_append_c (out, '$');
+    return;
+  }
+  g_string_append_len (out, seg, (gssize) len);
+}
+
+/* Expands %username% first, then swaps whole path components that name
+ * the template user. Partial matches, such as "jtest2", are left alone. */
+char *
+sbv_user_template_path (const char *path, const char *template_sam,
+                        const char *new_sam)
+{
+  if (!path || !*path) return NULL;
+  if (!new_sam) new_sam = "";
+
+  static const char token[] = "%username%";
+  GString *expanded = g_string_new (NULL);
+  for (const char *p = path; *p; ) {
+    if (g_ascii_strncasecmp (p, token, sizeof token - 1) == 0) {
+      g_string_append (expanded, new_sam);
+      p += sizeof token - 1;
+    } else {
+      g_string_append_c (expanded, *p++);
+    }
+  }
+
+  GString    *out = g_string_new (NULL);
+  const char *seg = expanded->str;
+  for (const char *p = expanded->str; ; p++) {
+    if (*p == '\\' || *p == '/' || *p == '\0') {
+      append_component (out, seg, (gsize) (p - seg), template_sam, new_sam);
+      if (*p == '\0') break;
+      g_string_append_c (out, *p);
+      seg = p + 1;
+    }
+  }
+  g_string_free (expanded, TRUE);
+  return g_string_free (out, FALSE);
 }

@@ -159,6 +159,40 @@ test_member_of (void)
   g_object_unref (u);
 }
 
+/* Template paths swap the template's username and expand %username%. */
+static void
+test_template_path (void)
+{
+  struct { const char *in, *out; } cases[] = {
+    { "\\\\fs1\\profiles\\jtest",     "\\\\fs1\\profiles\\alice" },
+    { "\\\\fs1\\home\\JTest$",        "\\\\fs1\\home\\alice$" },
+    { "\\\\fs1\\home\\%USERNAME%",    "\\\\fs1\\home\\alice" },
+    { "\\\\fs1\\home\\%username%.v6", "\\\\fs1\\home\\alice.v6" },
+    { "\\\\fs1\\home\\jtest2",        "\\\\fs1\\home\\jtest2" },
+    { "logon.bat",                    "logon.bat" },
+    { "scripts/jtest/run.bat",        "scripts/alice/run.bat" },
+  };
+  for (gsize i = 0; i < G_N_ELEMENTS (cases); i++) {
+    char *got = sbv_user_template_path (cases[i].in, "jtest", "alice");
+    g_assert_cmpstr (got, ==, cases[i].out);
+    g_free (got);
+  }
+  g_assert_null (sbv_user_template_path ("", "jtest", "alice"));
+  g_assert_null (sbv_user_template_path (NULL, "jtest", "alice"));
+}
+
+/* Only option bits come from the template. Disabled state stays. */
+static void
+test_template_uac (void)
+{
+  /* New user: NORMAL_ACCOUNT | ACCOUNTDISABLE. Template: enabled, password
+   * never expires, not delegated. */
+  gint64 got = sbv_user_template_uac (0x0202, 0x0200 | 0x10000 | 0x100000);
+  g_assert_cmpint (got, ==, 0x0202 | 0x10000 | 0x100000);
+  /* Option bits the template lacks are cleared. */
+  g_assert_cmpint (sbv_user_template_uac (0x0202 | 0x10000, 0x0200), ==, 0x0202);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -170,5 +204,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/user/home-drive", test_user_home_drive);
   g_test_add_func ("/user/lockout-end", test_user_lockout_end);
   g_test_add_func ("/user/member-of", test_member_of);
+  g_test_add_func ("/user/template-path", test_template_path);
+  g_test_add_func ("/user/template-uac", test_template_uac);
   return g_test_run ();
 }

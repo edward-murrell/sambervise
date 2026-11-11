@@ -48,6 +48,7 @@ add_executable(sambervise
     backend/sbv-probe.c
     backend/sbv-dn.c
     backend/sbv-ou-backend.c
+    backend/sbv-bulk.c
     ui/sbv-window.c
     ui/sbv-connect-dialog.c
     ui/sbv-password-dialog.c
@@ -65,6 +66,7 @@ add_executable(sambervise
     ui/sbv-create-ou-dialog.c
     ui/sbv-move-dialog.c
     ui/sbv-member-of.c
+    ui/sbv-bulk-ui.c
     ${GRESOURCE_C}
 )
 

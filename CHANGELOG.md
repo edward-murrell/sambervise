@@ -5,6 +5,33 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - Unreleased
+
+### Added
+- Select several users or computers at once. Ctrl+click adds or removes
+  one, and Shift+click selects a range. With more than one selected,
+  the detail side shows the count, the bulk actions and a list of the
+  selected accounts. Each one has a button to drop it from the
+  selection, and Clear Selection drops them all.
+- Bulk actions on users: Enable, Disable, Reset Password and Move. On
+  computers: Enable, Disable and Move. Each asks first and lists the
+  accounts. Bulk actions skip accounts hidden by the search or filters.
+- Bulk Reset Password sets one new password on every selected user. "User
+  must change password at next logon" is on by default.
+- After a bulk action, a failure on one account doesn't stop the rest.
+  A report lists each account that failed and why.
+- Copy… on a user creates a new user from it. The new user starts in the
+  same container and joins the same groups. It also gets the Windows
+  profile paths and account options such as "password never expires".
+  Paths that contain the old username or `%username%` get the new
+  username.
+
+### Fixed
+- Moving users or computers now refreshes the Groups panel, so member
+  lists show the new location.
+- Closing the Create User dialog while the user is still being created
+  no longer risks a crash.
+
 ## [0.6.0] - 2026-11-10
 
 ### Added

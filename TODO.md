@@ -36,8 +36,8 @@ Bug fixes ship as a patch bump.
   - The existing user and contact rename code splits DNs on the first
     comma, so a CN containing an escaped comma renames wrongly. Switch it
     to `sbv_dn_split`.
-  - GPO links (R15), delegation (R17) and move-to-OU in bulk (R8) build on
-    this.
+  - GPO links (R15) and delegation (R17) build on this. Bulk move (R8)
+    is done.
 
 ### R2. Search box and basic filters  *(DONE in 0.6.0, replaces #12)*
 - Done: every panel searches with one shared matcher. Users match name,
@@ -90,17 +90,24 @@ Bug fixes ship as a patch bump.
 - Done: filter search box in the Raw LDAP browser (see #6 follow-ups).
 - Open: saved queries.
 
-### R8. Bulk operations  *(open, replaces #11)*
-- Multi-select on the users and computers lists. No panel supports
-  multi-select yet.
-- Actions: enable, disable, reset password, and move to OU (needs R1).
-- Confirmation dialog showing the count and the first N items.
-- Backend: one `ldap_modify_ext_s` per object on a single connection.
+### R8. Bulk operations  *(DONE in 0.7.0, replaces #11)*
+- Done: multi-select on the Users and Computers lists. Two or more
+  visible rows show a bulk page.
+- Done: users get Enable, Disable, Reset Password and Move. Computers get
+  Enable, Disable and Move. Each asks first and names the accounts.
+- Done: `src/backend/sbv-bulk.c` holds the connection lock for the whole
+  run and sends one request per object. Per-object failures are
+  collected and reported together.
+- Open: bulk delete, and bulk add to group.
 
-### R9. Copy user from template  *(open)*
-- Copy group membership, OU, profile path and account flags to a new
-  user.
-- Needs R4 (membership) and R5 (profile fields).
+### R9. Copy user from template  *(DONE in 0.7.0)*
+- Done: "Copy…" on the user pane opens Create User in copy mode. The
+  container starts as the template's.
+- Done: copies memberOf, profile paths (username swapped by
+  `sbv_user_template_path`), option bits in `SBV_USER_TEMPLATE_UAC_MASK`
+  and accountExpires.
+- Open: a non-default primary group isn't copied. Unix attributes aren't
+  copied, since uidNumber must be unique.
 
 ## Phase 3: DNS
 

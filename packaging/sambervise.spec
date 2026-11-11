@@ -55,6 +55,13 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Wed Nov 11 2026 Edward Murrell <edward@murrell.co.nz> - 0.7.0-1
+- Add multi-select and bulk Enable, Disable, Reset Password and Move
+  for users, and bulk Enable, Disable and Move for computers.
+- Add Copy for users: create a new user from an existing one, with its
+  container, groups, profile paths and account options.
+- Refresh the Groups panel after moving users or computers.
+
 * Tue Nov 10 2026 Edward Murrell <edward@murrell.co.nz> - 0.6.0-1
 - Add Disabled, Locked and Expired filters to the Users list, and a
   Disabled filter to the Computers list.

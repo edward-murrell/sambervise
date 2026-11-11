@@ -5,7 +5,8 @@
 
 G_BEGIN_DECLS
 
-/* Invoked once the object has been moved. `new_dn` is borrowed. */
+/* Invoked once the object has been moved, with its new DN. In pick mode
+ * it gets the chosen container instead. `new_dn` is borrowed. */
 typedef void (*SbvMoveCallback) (SbvConnection *conn,
                                  const char    *new_dn,
                                  gpointer       user_data);
@@ -18,6 +19,16 @@ typedef void (*SbvMoveCallback) (SbvConnection *conn,
 void sbv_move_dialog_show (GtkWindow       *parent,
                            SbvConnection   *conn,
                            const char      *dn,
+                           const char      *label,
+                           SbvMoveCallback  callback,
+                           gpointer         user_data);
+
+/* Shows the same dialog in pick mode for moving several objects. Nothing
+ * is greyed out. When the user picks a container the dialog closes and
+ * `callback` runs with that container's DN as `new_dn`. The caller does
+ * the move. `label` describes the objects, e.g. "5 users". */
+void sbv_move_dialog_pick (GtkWindow       *parent,
+                           SbvConnection   *conn,
                            const char      *label,
                            SbvMoveCallback  callback,
                            gpointer         user_data);
