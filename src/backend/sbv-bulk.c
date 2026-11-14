@@ -68,6 +68,9 @@ ldap_message (LDAP *ld, int rc)
     case LDAP_TYPE_OR_VALUE_EXISTS:
       hint = "Already a member.";
       break;
+    case LDAP_NOT_ALLOWED_ON_NONLEAF:
+      hint = "It has child objects. Delete those first.";
+      break;
     case LDAP_CONSTRAINT_VIOLATION:
       hint = "The DC rejected the value. A password may not meet the policy.";
       break;
@@ -161,6 +164,54 @@ op_move (LDAP *ld, const char *dn, const char *parent)
   return rc;
 }
 
+/* Adds `dn` to the group at `group_dn`. An object already in the group
+ * counts as success. */
+static int
+op_add_to_group (LDAP *ld, const char *dn, const char *group_dn)
+{
+  char   *vals[] = { (char *) dn, NULL };
+  LDAPMod mod    = { LDAP_MOD_ADD, (char *) "member", { .modv_strvals = vals } };
+  LDAPMod *mods[] = { &mod, NULL };
+
+  int rc = ldap_modify_ext_s (ld, group_dn, mods, NULL, NULL);
+  if (rc == LDAP_TYPE_OR_VALUE_EXISTS || rc == LDAP_ALREADY_EXISTS)
+    rc = LDAP_SUCCESS;
+  return rc;
+}
+
+/* Deletes the leaf object at `dn`. Objects with children fail with
+ * LDAP_NOT_ALLOWED_ON_NONLEAF. Critical system objects, such as
+ * Administrator, krbtgt and DC accounts, are refused with `*refused` set
+ * to a message for the user. */
+static int
+op_delete (LDAP *ld, const char *dn, char **refused)
+{
+  char          *attrs[] = { (char *) "isCriticalSystemObject", NULL };
+  struct timeval tv      = { 10, 0 };
+  LDAPMessage   *res     = NULL;
+
+  int rc = ldap_search_ext_s (ld, dn, LDAP_SCOPE_BASE, "(objectClass=*)",
+                               attrs, 0, NULL, NULL, &tv, 1, &res);
+  if (rc != LDAP_SUCCESS) {
+    if (res) ldap_msgfree (res);
+    return rc;
+  }
+
+  LDAPMessage    *entry    = ldap_first_entry (ld, res);
+  struct berval **bv       = entry ? ldap_get_values_len (ld, entry, "isCriticalSystemObject") : NULL;
+  gboolean        critical = bv && bv[0]
+                             && g_ascii_strncasecmp (bv[0]->bv_val, "TRUE", bv[0]->bv_len) == 0;
+  ldap_value_free_len (bv);
+  ldap_msgfree (res);
+  if (!entry) return LDAP_NO_SUCH_OBJECT;
+
+  if (critical) {
+    *refused = g_strdup ("Skipped. It's a critical system object.");
+    return LDAP_UNWILLING_TO_PERFORM;
+  }
+  return ldap_delete_ext_s (ld, dn, NULL, NULL);
+}
+
 /* ── Bulk run ───────────────────────────────────────────────────────────── */
 
 typedef struct {
@@ -218,7 +269,8 @@ run_thread (GTask *task, gpointer source, gpointer task_data,
 
   SbvBulkResult *r = result_new (g_strv_length (d->dns));
   for (char **dn = d->dns; *dn; dn++) {
-    int rc = LDAP_OTHER;
+    int   rc      = LDAP_OTHER;
+    char *refused = NULL;
     switch (d->action) {
       case SBV_BULK_ENABLE:
         rc = op_set_enabled (ld, *dn, TRUE);
@@ -232,9 +284,15 @@ run_thread (GTask *task, gpointer source, gpointer task_data,
       case SBV_BULK_MOVE:
         rc = op_move (ld, *dn, d->arg);
         break;
+      case SBV_BULK_ADD_TO_GROUP:
+        rc = op_add_to_group (ld, *dn, d->arg);
+        break;
+      case SBV_BULK_DELETE:
+        rc = op_delete (ld, *dn, &refused);
+        break;
     }
     if (rc == LDAP_SUCCESS) r->succeeded++;
-    else                    result_fail (r, *dn, ldap_message (ld, rc));
+    else                    result_fail (r, *dn, refused ? refused : ldap_message (ld, rc));
   }
   sbv_connection_release_ldap (conn);
 
@@ -257,12 +315,13 @@ sbv_bulk_run_async (SbvConnection       *conn,
 {
   GTask *task = g_task_new (conn, cancellable, callback, user_data);
 
-  if ((action == SBV_BULK_MOVE || action == SBV_BULK_RESET_PASSWORD)
+  if ((action == SBV_BULK_MOVE || action == SBV_BULK_RESET_PASSWORD
+       || action == SBV_BULK_ADD_TO_GROUP)
       && (!arg || !*arg)) {
     g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
-                             action == SBV_BULK_MOVE
-                               ? "Pick a destination first."
-                               : "Enter a password first.");
+                             action == SBV_BULK_MOVE ? "Pick a destination first."
+                             : action == SBV_BULK_ADD_TO_GROUP ? "Pick a group first."
+                             : "Enter a password first.");
     g_object_unref (task);
     return;
   }

@@ -91,9 +91,15 @@ on_remove_clicked (GtkButton *btn, gpointer user_data)
 
 /* Shared state for one picker. Reference counted with GRcBox: the dialog
  * holds one reference and each pending LDAP call holds another, so the
- * state outlives whichever finishes last. */
+ * state outlives whichever finishes last. With an `owner` the picker adds
+ * the owner's object itself. Without one it hands the group to
+ * `pick_cb`. */
 typedef struct {
-  SbvMemberOf *owner;       /* owned ref */
+  SbvMemberOf      *owner;  /* owned ref, or NULL in pick mode */
+  SbvConnection    *conn;   /* owned ref */
+  SbvGroupPickedFn  pick_cb;
+  gpointer          pick_ud;
+  GDestroyNotify    pick_destroy;
   GtkWindow   *dialog;      /* NULL once the dialog is gone */
   GtkWidget   *list_box;
   GtkWidget   *spinner;
@@ -107,7 +113,9 @@ static void
 pick_ctx_clear (gpointer data)
 {
   PickCtx *ctx = data;
-  g_object_unref (ctx->owner);
+  g_clear_object (&ctx->owner);
+  g_clear_object (&ctx->conn);
+  if (ctx->pick_destroy) ctx->pick_destroy (ctx->pick_ud);
   g_free (ctx->filter_text);
 }
 
@@ -184,8 +192,9 @@ on_pick_groups_loaded (GObject *source, GAsyncResult *result, gpointer user_data
   for (guint i = 0; i < n; i++) {
     SbvGroup *group = g_list_model_get_item (G_LIST_MODEL (store), i);
     gint64 rid = sbv_group_get_rid (group);
-    if (is_member (ctx->owner, sbv_group_get_dn (group))
-        || (rid >= 0 && rid == ctx->owner->primary_rid)) {
+    if (ctx->owner
+        && (is_member (ctx->owner, sbv_group_get_dn (group))
+            || (rid >= 0 && rid == ctx->owner->primary_rid))) {
       g_object_unref (group);
       continue;
     }
@@ -256,7 +265,19 @@ on_pick_add_clicked (GtkButton *btn, gpointer user_data)
   SbvMemberOf   *owner = ctx->owner;
   GtkListBoxRow *row   = gtk_list_box_get_selected_row (GTK_LIST_BOX (ctx->list_box));
   SbvGroup      *group = row ? g_object_get_data (G_OBJECT (row), "sbv-group") : NULL;
-  if (!group || !owner->conn || !owner->dn) return;
+  if (!group) return;
+
+  /* Pick mode: close, then hand the group to the caller. */
+  if (!owner) {
+    g_object_ref (group);
+    PickCtx *keep = g_rc_box_acquire (ctx);
+    gtk_window_destroy (ctx->dialog);
+    if (keep->pick_cb) keep->pick_cb (group, keep->pick_ud);
+    pick_ctx_release (keep);
+    g_object_unref (group);
+    return;
+  }
+  if (!owner->conn || !owner->dn) return;
 
   gtk_widget_set_visible (ctx->error_label, FALSE);
   gtk_widget_set_sensitive (ctx->add_btn, FALSE);
@@ -274,19 +295,19 @@ on_pick_dialog_destroy (GtkWidget *widget, gpointer user_data)
   pick_ctx_release (ctx);
 }
 
-/* Opens the modal group picker. */
+/* Builds and presents the modal group picker for `ctx`, then starts
+ * loading the groups. Takes over the caller's reference to `ctx`. */
 static void
-show_picker (SbvMemberOf *self)
+present_picker (PickCtx *ctx, GtkWindow *parent)
 {
-  PickCtx *ctx = g_rc_box_new0 (PickCtx);
-  ctx->owner   = g_object_ref (self);
-
   GtkWidget *win = gtk_window_new ();
   gtk_window_set_title (GTK_WINDOW (win), "Add to Group");
   gtk_window_set_modal (GTK_WINDOW (win), TRUE);
   gtk_window_set_default_size (GTK_WINDOW (win), 440, 500);
-  GtkWidget *top = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
-  if (top) gtk_window_set_transient_for (GTK_WINDOW (win), GTK_WINDOW (top));
+  if (parent) {
+    gtk_window_set_transient_for (GTK_WINDOW (win), parent);
+    gtk_window_set_destroy_with_parent (GTK_WINDOW (win), TRUE);
+  }
   ctx->dialog = GTK_WINDOW (win);
 
   GtkWidget *vbox   = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
@@ -342,8 +363,38 @@ show_picker (SbvMemberOf *self)
   g_signal_connect (win, "destroy", G_CALLBACK (on_pick_dialog_destroy), ctx);
   gtk_window_present (GTK_WINDOW (win));
 
-  sbv_groups_list_async (self->conn, NULL, on_pick_groups_loaded,
+  sbv_groups_list_async (ctx->conn, NULL, on_pick_groups_loaded,
                          g_rc_box_acquire (ctx));
+}
+
+/* Opens the picker that adds this section's object to a group. */
+static void
+show_picker (SbvMemberOf *self)
+{
+  PickCtx *ctx = g_rc_box_new0 (PickCtx);
+  ctx->owner   = g_object_ref (self);
+  ctx->conn    = g_object_ref (self->conn);
+  GtkWidget *top = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  present_picker (ctx, top ? GTK_WINDOW (top) : NULL);
+}
+
+void
+sbv_member_of_pick_group (GtkWindow        *parent,
+                          SbvConnection    *conn,
+                          SbvGroupPickedFn  callback,
+                          gpointer          user_data,
+                          GDestroyNotify    user_data_free)
+{
+  if (!conn) {
+    if (user_data_free) user_data_free (user_data);
+    return;
+  }
+  PickCtx *ctx      = g_rc_box_new0 (PickCtx);
+  ctx->conn         = g_object_ref (conn);
+  ctx->pick_cb      = callback;
+  ctx->pick_ud      = user_data;
+  ctx->pick_destroy = user_data_free;
+  present_picker (ctx, parent);
 }
 
 /* "Add to Group…" button. */

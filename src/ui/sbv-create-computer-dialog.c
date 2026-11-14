@@ -1,4 +1,5 @@
 #include "sbv-create-computer-dialog.h"
+#include "sbv-move-dialog.h"
 #include "../backend/sbv-computers-backend.h"
 
 #include <adwaita.h>
@@ -186,7 +187,10 @@ sbv_create_computer_dialog_show (GtkWindow                 *parent,
     g_free (def);
   }
   gtk_box_append (GTK_BOX (form),
-                   make_field_row ("Container DN", ctx->container_entry));
+                   make_field_row ("Container DN",
+                                   sbv_move_dialog_container_field (
+                                     ctx->container_entry, conn,
+                                     "the new computer")));
 
   /* Hint about disabled-on-create. */
   GtkWidget *hint = gtk_label_new (

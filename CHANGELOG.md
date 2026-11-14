@@ -5,6 +5,20 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - Unreleased
+
+### Added
+- A Browse… button beside the container in the New User, New Group,
+  New Contact, New Computer and New OU dialogs. It picks from the OUs
+  and containers, so you no longer need to type a DN.
+- Bulk Add to Group… and Delete for users and computers. Delete asks
+  first and skips critical system objects such as Administrator,
+  krbtgt and domain controllers.
+
+### Fixed
+- A crash when removing a member from a group in the Groups panel,
+  such as when the remove button was clicked twice.
+
 ## [0.7.1] - 2026-11-14
 
 ### Fixed

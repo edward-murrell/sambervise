@@ -15,6 +15,9 @@ typedef enum {
   SBV_BULK_DISABLE,         /* set ACCOUNTDISABLE (users or computers) */
   SBV_BULK_RESET_PASSWORD,  /* users only; needs a sealed connection */
   SBV_BULK_MOVE,            /* any object; keeps its RDN */
+  SBV_BULK_ADD_TO_GROUP,    /* any object; adds it to one group's member */
+  SBV_BULK_DELETE,          /* any leaf object; skips critical system
+                             * objects; can't be undone */
 } SbvBulkAction;
 
 /* One object that failed, with a message fit to show the user. */
@@ -38,6 +41,8 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC (SbvBulkResult, sbv_bulk_result_free)
  *     `must_change` is TRUE the user must change it at next logon.
  *   SBV_BULK_MOVE: `arg` is the destination container DN. Objects
  *     already there count as succeeded.
+ *   SBV_BULK_ADD_TO_GROUP: `arg` is the group DN. Objects already in the
+ *     group count as succeeded.
  * The finish call fails only when the run couldn't start, such as when
  * the connection has dropped. Per-object errors land in the result. */
 void           sbv_bulk_run_async  (SbvConnection       *conn,

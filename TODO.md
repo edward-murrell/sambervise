@@ -32,7 +32,8 @@ Bug fixes ship as a patch bump.
 - The OU panel emits "directory-changed" after a rename, move or delete,
   and the window reloads the other panels.
 - Follow-ups (open):
-  - Container picker in the create dialogs instead of a typed DN.
+  - *(DONE in 0.8.0)* Container picker in the create dialogs: a Browse…
+    button beside the typed DN.
   - *(DONE in 0.7.1)* User and contact renames now use `sbv_dn_split`
     and `sbv_dn_build`. Create paths escape the CN too.
   - GPO links (R15) and delegation (R17) build on this. Bulk move (R8)
@@ -97,7 +98,8 @@ Bug fixes ship as a patch bump.
 - Done: `src/backend/sbv-bulk.c` holds the connection lock for the whole
   run and sends one request per object. Per-object failures are
   collected and reported together.
-- Open: bulk delete, and bulk add to group.
+- Done in 0.8.0: bulk Add to Group… and Delete. Delete skips objects
+  with isCriticalSystemObject set.
 
 ### R9. Copy user from template  *(DONE in 0.7.0)*
 - Done: "Copy…" on the user pane opens Create User in copy mode. The

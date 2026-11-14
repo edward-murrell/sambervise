@@ -33,4 +33,12 @@ void sbv_move_dialog_pick (GtkWindow       *parent,
                            SbvMoveCallback  callback,
                            gpointer         user_data);
 
+/* Wraps `entry` in a row with a "Browse…" button. The button opens the
+ * same dialog in choose mode, starting on the entry's current DN, and
+ * writes the chosen container's DN into the entry. `label` names the new
+ * object in the prompt, e.g. "the new user". Returns the row. */
+GtkWidget *sbv_move_dialog_container_field (GtkWidget     *entry,
+                                            SbvConnection *conn,
+                                            const char    *label);
+
 G_END_DECLS

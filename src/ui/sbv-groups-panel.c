@@ -263,11 +263,16 @@ on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
 
 /* ── Member list population ─────────────────────────────────────────────── */
 
+static void populate_members (SbvGroupsPanel *self, SbvGroup *group);
+
+/* State for one member removal. Made per click, so a second click can't
+ * reuse state that an earlier removal has freed. */
 typedef struct {
-  SbvGroupsPanel *panel;
+  SbvGroupsPanel *panel;      /* owned ref */
   char           *member_dn;
 } RemoveCtx;
 
+/* Remove completion: show the error, or reload the panel. */
 static void
 on_remove_done (GObject *source, GAsyncResult *result, gpointer user_data)
 {
@@ -280,26 +285,35 @@ on_remove_done (GObject *source, GAsyncResult *result, gpointer user_data)
     gtk_label_set_text (GTK_LABEL (self->member_error), err->message);
     gtk_widget_set_visible (self->member_error, TRUE);
     g_error_free (err);
+    /* Rebuild the rows to re-enable the button. */
+    if (self->selected_group) populate_members (self, self->selected_group);
   } else {
     sbv_groups_panel_load (self, conn);
     g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
   }
 
+  g_object_unref (ctx->panel);
   g_free (ctx->member_dn);
   g_free (ctx);
 }
 
+/* Member row's remove button: removes that member from the selected
+ * group. The button stays disabled until the list reloads. */
 static void
 on_remove_clicked (GtkButton *btn, gpointer user_data)
 {
-  (void) btn;
-  RemoveCtx *ctx = user_data;
-  if (!ctx->panel->conn || !ctx->panel->selected_group) return;
+  SbvGroupsPanel *self      = SBV_GROUPS_PANEL (user_data);
+  const char     *member_dn = g_object_get_data (G_OBJECT (btn), "member-dn");
+  if (!self->conn || !self->selected_group || !member_dn) return;
 
-  gtk_widget_set_visible (ctx->panel->member_error, FALSE);
-  sbv_groups_remove_member_async (ctx->panel->conn, ctx->panel->selected_group,
-                                   ctx->member_dn, NULL, on_remove_done,
-                                   /* ctx is reused in callback */ ctx);
+  gtk_widget_set_sensitive (GTK_WIDGET (btn), FALSE);
+  gtk_widget_set_visible (self->member_error, FALSE);
+
+  RemoveCtx *ctx = g_new0 (RemoveCtx, 1);
+  ctx->panel     = g_object_ref (self);
+  ctx->member_dn = g_strdup (member_dn);
+  sbv_groups_remove_member_async (self->conn, self->selected_group,
+                                   ctx->member_dn, NULL, on_remove_done, ctx);
 }
 
 static void
@@ -343,11 +357,9 @@ populate_members (SbvGroupsPanel *self, SbvGroup *group)
     gtk_widget_add_css_class (rm_btn, "destructive-action");
     gtk_widget_set_tooltip_text (rm_btn, "Remove from group");
 
-    /* ctx freed in on_remove_done */
-    RemoveCtx *ctx    = g_new0 (RemoveCtx, 1);
-    ctx->panel        = self;
-    ctx->member_dn    = g_strdup (members[i]);
-    g_signal_connect (rm_btn, "clicked", G_CALLBACK (on_remove_clicked), ctx);
+    g_object_set_data_full (G_OBJECT (rm_btn), "member-dn",
+                            g_strdup (members[i]), g_free);
+    g_signal_connect (rm_btn, "clicked", G_CALLBACK (on_remove_clicked), self);
 
     gtk_box_append (GTK_BOX (box), rm_btn);
     gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), box);

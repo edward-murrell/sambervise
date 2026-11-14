@@ -1,4 +1,5 @@
 #include "sbv-create-user-dialog.h"
+#include "sbv-move-dialog.h"
 #include "../backend/sbv-users-backend.h"
 #include "../backend/sbv-bulk.h"
 #include "../backend/sbv-dn.h"
@@ -373,7 +374,10 @@ show_dialog (GtkWindow            *parent,
     g_free (def);
   }
   gtk_box_append (GTK_BOX (form),
-                   make_field_row ("Container DN", ctx->container_entry));
+                   make_field_row ("Container DN",
+                                   sbv_move_dialog_container_field (
+                                     ctx->container_entry, conn,
+                                     "the new user")));
 
   /* Hint about disabled-on-create, or what a copy brings across */
   char *hint_text = template_user ? copy_summary (template_user) : g_strdup (

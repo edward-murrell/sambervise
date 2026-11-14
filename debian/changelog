@@ -1,3 +1,11 @@
+sambervise (0.8.0) UNRELEASED; urgency=medium
+
+  * Add a Browse button to pick the container in the create dialogs.
+  * Add bulk Add to Group and Delete for users and computers.
+  * Fix a crash when removing a group member in the Groups panel.
+
+ -- Edward Murrell <edward@murrell.co.nz>  Sat, 14 Nov 2026 12:44:08 +1100
+
 sambervise (0.7.1) unstable; urgency=medium
 
   * Fix renaming and creating objects whose names contain a comma or

@@ -1672,6 +1672,7 @@ typedef struct {
   char          *done_text;
   GHashTable    *reselect;   /* lower-cased DNs to select afterwards */
   gboolean       moved;
+  gboolean       membership;  /* group members change, so signal */
 } BulkRun;
 
 /* Greys out the bulk buttons and shows the spinner while a run is on. */
@@ -1708,7 +1709,7 @@ on_bulk_done (GObject *source, GAsyncResult *result, gpointer user_data)
     g_clear_pointer (&self->reselect_dns, g_hash_table_unref);
     self->reselect_dns = g_steal_pointer (&run->reselect);
     if (self->conn) sbv_users_panel_load (self, self->conn);
-    if (run->moved) g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
+    if (run->membership) g_signal_emit (self, signals[SIGNAL_MEMBERSHIP_CHANGED], 0);
   }
 
   g_free (run->done_text);
@@ -1722,7 +1723,7 @@ on_bulk_done (GObject *source, GAsyncResult *result, gpointer user_data)
  * added to the reselect set alongside the old ones. */
 static void
 start_bulk (SbvUsersPanel *self, SbvBulkAction action, const char *verb,
-            const char *arg, gboolean must_change)
+            const char *arg, gboolean must_change, const char *suffix)
 {
   GPtrArray *users = selected_users (self);
   if (users->len == 0 || !self->conn) {
@@ -1733,9 +1734,12 @@ start_bulk (SbvUsersPanel *self, SbvBulkAction action, const char *verb,
   BulkRun *run  = g_new0 (BulkRun, 1);
   run->self     = g_object_ref (self);
   run->moved    = (action == SBV_BULK_MOVE);
+  run->membership = (action == SBV_BULK_MOVE || action == SBV_BULK_ADD_TO_GROUP
+                     || action == SBV_BULK_DELETE);
   run->reselect = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
-  run->done_text = g_strdup_printf ("%s %u user%s", verb, users->len,
-                                    users->len == 1 ? "" : "s");
+  run->done_text = g_strdup_printf ("%s %u user%s%s%s", verb, users->len,
+                                    users->len == 1 ? "" : "s",
+                                    suffix ? " " : "", suffix ? suffix : "");
 
   char **dns = g_new0 (char *, users->len + 1);
   for (guint i = 0; i < users->len; i++) {
@@ -1793,14 +1797,14 @@ confirm_bulk (SbvUsersPanel *self, const char *heading_fmt,
 static void
 bulk_enable_accepted (gpointer user_data)
 {
-  start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_ENABLE, "Enabled", NULL, FALSE);
+  start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_ENABLE, "Enabled", NULL, FALSE, NULL);
 }
 
 /* Confirmed: disable the selected users. */
 static void
 bulk_disable_accepted (gpointer user_data)
 {
-  start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_DISABLE, "Disabled", NULL, FALSE);
+  start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_DISABLE, "Disabled", NULL, FALSE, NULL);
 }
 
 /* Password entered: reset it on every selected user. */
@@ -1808,7 +1812,7 @@ static void
 bulk_password_accepted (const char *password, gboolean must_change, gpointer user_data)
 {
   start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_RESET_PASSWORD,
-              "Reset the password for", password, must_change);
+              "Reset the password for", password, must_change, NULL);
 }
 
 /* Destination picked: move the selected users there. */
@@ -1816,7 +1820,7 @@ static void
 bulk_move_picked (SbvConnection *conn, const char *parent_dn, gpointer user_data)
 {
   (void) conn;
-  start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_MOVE, "Moved", parent_dn, FALSE);
+  start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_MOVE, "Moved", parent_dn, FALSE, NULL);
 }
 
 /* Bulk "Enable" button. */
@@ -1864,6 +1868,45 @@ on_bulk_move_clicked (GtkButton *btn, gpointer user_data)
   g_ptr_array_unref (users);
 }
 
+/* Confirmed: delete the selected users. */
+static void
+bulk_delete_accepted (gpointer user_data)
+{
+  start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_DELETE, "Deleted", NULL, FALSE, NULL);
+}
+
+/* Group picked: add the selected users to it. */
+static void
+bulk_group_picked (SbvGroup *group, gpointer user_data)
+{
+  const char *name = sbv_group_get_display_name (group);
+  if (!name || !*name) name = sbv_group_get_sam (group);
+  char *suffix = g_strdup_printf ("to %s", name ? name : "the group");
+  start_bulk (SBV_USERS_PANEL (user_data), SBV_BULK_ADD_TO_GROUP, "Added", sbv_group_get_dn (group), FALSE, suffix);
+  g_free (suffix);
+}
+
+/* Bulk "Add to Group…" button: pick a group, then add. */
+static void
+on_bulk_group_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  SbvUsersPanel *self = SBV_USERS_PANEL (user_data);
+  GtkWidget *win = gtk_widget_get_ancestor (GTK_WIDGET (self), GTK_TYPE_WINDOW);
+  sbv_member_of_pick_group (win ? GTK_WINDOW (win) : NULL, self->conn,
+                            bulk_group_picked, g_object_ref (self),
+                            g_object_unref);
+}
+
+/* Bulk "Delete" button. */
+static void
+on_bulk_delete_clicked (GtkButton *btn, gpointer user_data)
+{
+  (void) btn;
+  confirm_bulk (SBV_USERS_PANEL (user_data), "Delete %u users? This can't be undone.",
+                "_Delete", TRUE, bulk_delete_accepted);
+}
+
 /* Builds the page shown when several users are selected. */
 static GtkWidget *
 build_bulk_page (SbvUsersPanel *self)
@@ -1878,18 +1921,28 @@ build_bulk_page (SbvUsersPanel *self)
   GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
   gtk_widget_set_halign (vbox, GTK_ALIGN_CENTER);
 
-  self->bulk_buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+  self->bulk_buttons = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
   struct { const char *label; GCallback cb; } btns[] = {
     { "Enable",           G_CALLBACK (on_bulk_enable_clicked)   },
     { "Disable",          G_CALLBACK (on_bulk_disable_clicked)  },
     { "Reset Password…",  G_CALLBACK (on_bulk_password_clicked) },
     { "Move…",            G_CALLBACK (on_bulk_move_clicked)     },
+    { "Add to Group…",    G_CALLBACK (on_bulk_group_clicked)    },
+    { "Delete",           G_CALLBACK (on_bulk_delete_clicked)   },
   };
+  GtkWidget *row = NULL;
   for (gsize i = 0; i < G_N_ELEMENTS (btns); i++) {
+    if (i % 3 == 0) {
+      row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
+      gtk_widget_set_halign (row, GTK_ALIGN_CENTER);
+      gtk_box_append (GTK_BOX (self->bulk_buttons), row);
+    }
     GtkWidget *b = gtk_button_new_with_label (btns[i].label);
     gtk_widget_add_css_class (b, "pill");
+    if (btns[i].cb == G_CALLBACK (on_bulk_delete_clicked))
+      gtk_widget_add_css_class (b, "destructive-action");
     g_signal_connect (b, "clicked", btns[i].cb, self);
-    gtk_box_append (GTK_BOX (self->bulk_buttons), b);
+    gtk_box_append (GTK_BOX (row), b);
   }
   gtk_box_append (GTK_BOX (vbox), self->bulk_buttons);
 

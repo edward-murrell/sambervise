@@ -2,6 +2,7 @@
 
 #include <gtk/gtk.h>
 #include "../backend/sbv-connection.h"
+#include "../model/sbv-group.h"
 
 G_BEGIN_DECLS
 
@@ -23,5 +24,19 @@ void       sbv_member_of_set (SbvMemberOf        *self,
                               const char         *dn,
                               const char * const *member_of,
                               gint                primary_group_id);
+
+/* Runs with the group chosen in sbv_member_of_pick_group. `group` is
+ * borrowed. */
+typedef void (*SbvGroupPickedFn) (SbvGroup *group, gpointer user_data);
+
+/* Opens the same group picker on its own. It lists every group, and Add
+ * closes it and runs `callback` with the chosen group. Cancel runs
+ * nothing. `user_data_free`, if set, frees `user_data` when the picker
+ * goes. */
+void sbv_member_of_pick_group (GtkWindow        *parent,
+                               SbvConnection    *conn,
+                               SbvGroupPickedFn  callback,
+                               gpointer          user_data,
+                               GDestroyNotify    user_data_free);
 
 G_END_DECLS

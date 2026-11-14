@@ -6,14 +6,24 @@
 #include <adwaita.h>
 #include <string.h>
 
+/* What the dialog does with the chosen container. */
+typedef enum {
+  MODE_MOVE,     /* move the object at `dn` */
+  MODE_PICK,     /* return a destination for a bulk move */
+  MODE_CHOOSE,   /* return a container for a new object */
+} DialogMode;
+
 /* Per-dialog state. Freed on the window's "destroy" signal. */
 typedef struct {
   GtkWindow       *window;
   SbvConnection   *conn;      /* owned ref */
   char            *dn;
   char            *current_parent;
+  char            *preselect;
+  DialogMode       mode;
   SbvMoveCallback  callback;
   gpointer         user_data;
+  GDestroyNotify   user_data_free;
 
   GtkWidget *stack;           /* "loading" | "list" */
   GtkWidget *search_entry;
@@ -42,8 +52,10 @@ static void
 ctx_unref (MoveCtx *ctx)
 {
   if (--ctx->refs > 0) return;
+  if (ctx->user_data_free) ctx->user_data_free (ctx->user_data);
   g_object_unref (ctx->conn);
   g_free (ctx->dn);
+  g_free (ctx->preselect);
   g_free (ctx->current_parent);
   g_free (ctx->filter_text);
   g_free (ctx);
@@ -168,6 +180,9 @@ on_list_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
         ? "Current location" : "Can't move an OU into itself");
     }
     gtk_list_box_append (GTK_LIST_BOX (ctx->list_box), row);
+    if (ctx->preselect && sbv_dn_equal (odn, ctx->preselect))
+      gtk_list_box_select_row (GTK_LIST_BOX (ctx->list_box),
+                               GTK_LIST_BOX_ROW (row));
     g_object_unref (ou);
   }
   g_object_unref (store);
@@ -220,8 +235,8 @@ on_move_clicked (GtkButton *btn, gpointer user_data)
 
   gtk_widget_set_visible (ctx->error_label, FALSE);
 
-  /* Pick mode: hand the destination back and let the caller move. */
-  if (!ctx->dn) {
+  /* Pick and choose modes: hand the container back to the caller. */
+  if (ctx->mode != MODE_MOVE) {
     char *parent_dn = g_strdup (sbv_ou_get_dn (ou));
     SbvMoveCallback cb = ctx->callback;
     gpointer        ud = ctx->user_data;
@@ -249,32 +264,48 @@ on_row_activated (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
     on_move_clicked (NULL, ctx);
 }
 
-/* Builds and presents the dialog. A NULL `dn` selects pick mode, where
- * the Move button returns the chosen container instead of moving. */
+/* Builds and presents the dialog. In MODE_MOVE it moves the object at
+ * `dn`. In the other modes the main button returns the chosen container
+ * and `dn` is NULL. `preselect` selects that container once the list
+ * loads. `user_data_free`, if set, frees `user_data` with the dialog. */
 static void
 show_dialog (GtkWindow       *parent,
              SbvConnection   *conn,
+             DialogMode       mode,
              const char      *dn,
              const char      *label,
+             const char      *preselect,
              SbvMoveCallback  callback,
-             gpointer         user_data)
+             gpointer         user_data,
+             GDestroyNotify   user_data_free)
 {
-  if (!conn) return;
+  if (!conn) {
+    if (user_data_free) user_data_free (user_data);
+    return;
+  }
 
   MoveCtx *ctx = g_new0 (MoveCtx, 1);
-  ctx->conn      = g_object_ref (conn);
-  ctx->dn        = g_strdup (dn);
-  ctx->callback  = callback;
-  ctx->user_data = user_data;
-  ctx->alive     = TRUE;
-  ctx->refs      = 1;
+  ctx->conn           = g_object_ref (conn);
+  ctx->mode           = mode;
+  ctx->dn             = g_strdup (dn);
+  ctx->preselect      = g_strdup (preselect);
+  ctx->callback       = callback;
+  ctx->user_data      = user_data;
+  ctx->user_data_free = user_data_free;
+  ctx->alive          = TRUE;
+  ctx->refs           = 1;
   sbv_dn_split (dn, NULL, &ctx->current_parent);
 
+  gboolean choose = (mode == MODE_CHOOSE);
+
   GtkWidget *win = gtk_window_new ();
-  gtk_window_set_title (GTK_WINDOW (win), "Move");
+  gtk_window_set_title (GTK_WINDOW (win), choose ? "Choose Container" : "Move");
   gtk_window_set_modal (GTK_WINDOW (win), TRUE);
   gtk_window_set_default_size (GTK_WINDOW (win), 480, 520);
-  if (parent) gtk_window_set_transient_for (GTK_WINDOW (win), parent);
+  if (parent) {
+    gtk_window_set_transient_for (GTK_WINDOW (win), parent);
+    gtk_window_set_destroy_with_parent (GTK_WINDOW (win), TRUE);
+  }
   ctx->window = GTK_WINDOW (win);
 
   GtkWidget *vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
@@ -291,7 +322,7 @@ show_dialog (GtkWindow       *parent,
   gtk_widget_set_visible (ctx->spinner, FALSE);
   adw_header_bar_pack_end (ADW_HEADER_BAR (header), ctx->spinner);
 
-  ctx->move_btn = gtk_button_new_with_label ("Move");
+  ctx->move_btn = gtk_button_new_with_label (choose ? "Select" : "Move");
   gtk_widget_add_css_class (ctx->move_btn, "suggested-action");
   gtk_widget_set_sensitive (ctx->move_btn, FALSE);
   adw_header_bar_pack_end (ADW_HEADER_BAR (header), ctx->move_btn);
@@ -308,7 +339,8 @@ show_dialog (GtkWindow       *parent,
   gtk_widget_set_vexpand (body, TRUE);
 
   char *esc    = g_markup_escape_text (label && *label ? label : (dn ? dn : ""), -1);
-  char *prompt = g_strdup_printf ("Move <b>%s</b> to:", esc);
+  char *prompt = g_strdup_printf (choose ? "Choose a container for <b>%s</b>:"
+                                         : "Move <b>%s</b> to:", esc);
   GtkWidget *prompt_lbl = gtk_label_new (NULL);
   gtk_label_set_markup (GTK_LABEL (prompt_lbl), prompt);
   gtk_label_set_xalign (GTK_LABEL (prompt_lbl), 0);
@@ -380,7 +412,8 @@ sbv_move_dialog_show (GtkWindow       *parent,
                       gpointer         user_data)
 {
   if (!dn) return;
-  show_dialog (parent, conn, dn, label, callback, user_data);
+  show_dialog (parent, conn, MODE_MOVE, dn, label, NULL,
+               callback, user_data, NULL);
 }
 
 void
@@ -390,5 +423,50 @@ sbv_move_dialog_pick (GtkWindow       *parent,
                       SbvMoveCallback  callback,
                       gpointer         user_data)
 {
-  show_dialog (parent, conn, NULL, label, callback, user_data);
+  show_dialog (parent, conn, MODE_PICK, NULL, label, NULL,
+               callback, user_data, NULL);
+}
+
+/* Picker result for a container field: write the DN into the entry. */
+static void
+on_container_chosen (SbvConnection *conn, const char *dn, gpointer user_data)
+{
+  (void) conn;
+  gtk_editable_set_text (GTK_EDITABLE (user_data), dn);
+}
+
+/* Browse button beside a container field: opens the picker on the
+ * entry's current value. */
+static void
+on_browse_clicked (GtkButton *btn, gpointer user_data)
+{
+  GtkWidget     *entry = GTK_WIDGET (user_data);
+  SbvConnection *conn  = g_object_get_data (G_OBJECT (btn), "sbv-conn");
+  const char    *label = g_object_get_data (G_OBJECT (btn), "sbv-label");
+  GtkRoot       *root  = gtk_widget_get_root (GTK_WIDGET (btn));
+
+  show_dialog (GTK_IS_WINDOW (root) ? GTK_WINDOW (root) : NULL, conn,
+               MODE_CHOOSE, NULL, label,
+               gtk_editable_get_text (GTK_EDITABLE (entry)),
+               on_container_chosen, g_object_ref (entry), g_object_unref);
+}
+
+GtkWidget *
+sbv_move_dialog_container_field (GtkWidget     *entry,
+                                 SbvConnection *conn,
+                                 const char    *label)
+{
+  GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_widget_set_hexpand (entry, TRUE);
+  gtk_box_append (GTK_BOX (box), entry);
+
+  GtkWidget *btn = gtk_button_new_with_label ("Browse…");
+  gtk_widget_set_tooltip_text (btn, "Choose from the OUs and containers");
+  g_object_set_data_full (G_OBJECT (btn), "sbv-conn",
+                          g_object_ref (conn), g_object_unref);
+  g_object_set_data_full (G_OBJECT (btn), "sbv-label",
+                          g_strdup (label), g_free);
+  g_signal_connect (btn, "clicked", G_CALLBACK (on_browse_clicked), entry);
+  gtk_box_append (GTK_BOX (box), btn);
+  return box;
 }

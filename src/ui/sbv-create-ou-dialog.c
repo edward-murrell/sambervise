@@ -1,4 +1,5 @@
 #include "sbv-create-ou-dialog.h"
+#include "sbv-move-dialog.h"
 #include "../backend/sbv-ou-backend.h"
 
 #include <adwaita.h>
@@ -181,7 +182,9 @@ sbv_create_ou_dialog_show (GtkWindow           *parent,
   gtk_widget_add_css_class (ctx->parent_entry, "monospace");
   const char *def = parent_dn ? parent_dn : sbv_connection_get_base_dn (conn);
   gtk_editable_set_text (GTK_EDITABLE (ctx->parent_entry), def ?: "");
-  gtk_box_append (GTK_BOX (form), make_field_row ("Parent DN", ctx->parent_entry));
+  gtk_box_append (GTK_BOX (form), make_field_row ("Parent DN",
+                   sbv_move_dialog_container_field (ctx->parent_entry, conn,
+                                                    "the new OU")));
 
   ctx->error_label = gtk_label_new ("");
   gtk_label_set_xalign (GTK_LABEL (ctx->error_label), 0);
