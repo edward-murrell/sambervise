@@ -5,6 +5,18 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - Unreleased
+
+### Fixed
+- Saving a user or contact whose name contains a comma, such as
+  "Smith, Bob", no longer fails or renames it wrongly.
+- Creating a user, contact, group or computer with a comma or other
+  special character in its name now works.
+- Group member lists and the Raw LDAP tree now show full names that
+  contain a comma.
+- Saving a user no longer renames it on the DC when the name is
+  unchanged.
+
 ## [0.7.0] - 2026-11-11
 
 ### Added

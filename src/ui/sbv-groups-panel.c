@@ -5,6 +5,7 @@
 #include "../backend/sbv-users-backend.h"
 #include "../backend/sbv-collisions.h"
 #include "../backend/sbv-idmap-hints.h"
+#include "../backend/sbv-dn.h"
 #include "../model/sbv-group.h"
 #include "../model/sbv-user.h"
 #include "../model/sbv-search.h"
@@ -80,14 +81,15 @@ static guint signals[N_SIGNALS];
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
+/* Returns the display name for a member DN: the unescaped CN value, or
+ * the whole DN for anything else. Caller frees. */
 static char *
 dn_to_friendly (const char *dn)
 {
   if (!dn) return NULL;
   if (g_ascii_strncasecmp (dn, "CN=", 3) == 0) {
-    const char *start = dn + 3;
-    const char *comma = strchr (start, ',');
-    return comma ? g_strndup (start, comma - start) : g_strdup (start);
+    char *value = sbv_dn_rdn_value (dn);
+    if (value) return value;
   }
   return g_strdup (dn);
 }
@@ -824,11 +826,8 @@ on_group_created (SbvConnection *conn, const char *new_dn, gpointer user_data)
   SbvGroupsPanel *self = SBV_GROUPS_PANEL (user_data);
 
   if (new_dn && g_ascii_strncasecmp (new_dn, "CN=", 3) == 0) {
-    const char *start = new_dn + 3;
-    const char *comma = strchr (start, ',');
     g_free (self->pending_select_sam);
-    self->pending_select_sam =
-      comma ? g_strndup (start, comma - start) : g_strdup (start);
+    self->pending_select_sam = sbv_dn_rdn_value (new_dn);
   }
 
   sbv_groups_panel_load (self, conn);

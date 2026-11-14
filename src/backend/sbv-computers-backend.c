@@ -1,5 +1,6 @@
 #include "sbv-computers-backend.h"
 #include "../sbv-error.h"
+#include "sbv-dn.h"
 
 #include <ldap.h>
 #include <lber.h>
@@ -496,7 +497,7 @@ create_computer_thread (GTask *task, gpointer source, gpointer task_data,
     return;
   }
 
-  char *dn  = g_strdup_printf ("CN=%s,%s", d->cn, d->container_dn);
+  char *dn  = sbv_dn_build ("CN", d->cn, d->container_dn);
   char *sam = g_strdup_printf ("%s$", d->cn);
 
   char uac_buf[16];

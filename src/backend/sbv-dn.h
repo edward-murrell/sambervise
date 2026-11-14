@@ -13,6 +13,13 @@ G_BEGIN_DECLS
  * becomes "Smith\, Bob". Caller frees. */
 char     *sbv_dn_escape_value     (const char *value);
 
+/* Builds "<type>=<escaped value>,<parent>", e.g. ("CN", "Smith, Bob",
+ * "OU=Staff,DC=example,DC=com") gives "CN=Smith\, Bob,OU=Staff,...".
+ * A NULL or empty `parent` gives the RDN alone. Caller frees. */
+char     *sbv_dn_build            (const char *type,
+                                   const char *value,
+                                   const char *parent);
+
 /* Splits `dn` at its first unescaped comma. `rdn` gets the leading RDN
  * exactly as written (still escaped) and `parent` gets the rest. Either out
  * pointer may be NULL. Returns FALSE (and sets outs to NULL) when the DN has

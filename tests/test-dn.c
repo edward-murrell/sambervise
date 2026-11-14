@@ -29,6 +29,25 @@ test_dn_escape (void)
   g_free (s);
 }
 
+/* Builds an escaped RDN, with or without a parent. */
+static void
+test_dn_build (void)
+{
+  char *s;
+
+  s = sbv_dn_build ("CN", "Smith, Bob", "OU=Staff,DC=example,DC=com");
+  g_assert_cmpstr (s, ==, "CN=Smith\\, Bob,OU=Staff,DC=example,DC=com");
+  g_free (s);
+
+  s = sbv_dn_build ("CN", "Smith, Bob", NULL);
+  g_assert_cmpstr (s, ==, "CN=Smith\\, Bob");
+  g_free (s);
+
+  s = sbv_dn_build ("OU", "Sales", "");
+  g_assert_cmpstr (s, ==, "OU=Sales");
+  g_free (s);
+}
+
 /* Splits at the first comma that isn't escaped. */
 static void
 test_dn_split (void)
@@ -164,6 +183,7 @@ main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
   g_test_add_func ("/dn/escape",           test_dn_escape);
+  g_test_add_func ("/dn/build",            test_dn_build);
   g_test_add_func ("/dn/split",            test_dn_split);
   g_test_add_func ("/dn/rdn-value",        test_dn_rdn_value);
   g_test_add_func ("/dn/is-within",        test_dn_is_within);

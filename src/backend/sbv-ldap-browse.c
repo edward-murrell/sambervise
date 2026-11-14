@@ -1,4 +1,5 @@
 #include "sbv-ldap-browse.h"
+#include "sbv-dn.h"
 #include "../sbv-error.h"
 
 #include <ldap.h>
@@ -46,11 +47,8 @@ static char *
 extract_label (const char *dn)
 {
   if (!dn || !*dn) return g_strdup ("");
-  const char *eq = strchr (dn, '=');
-  if (!eq) return g_strdup (dn);
-  const char *start = eq + 1;
-  const char *comma = strchr (start, ',');
-  return comma ? g_strndup (start, comma - start) : g_strdup (start);
+  char *value = sbv_dn_rdn_value (dn);
+  return value ? value : g_strdup (dn);
 }
 
 /* Reads the `hasSubordinates` operational attribute from the collected

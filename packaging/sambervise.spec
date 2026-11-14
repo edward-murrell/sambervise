@@ -55,6 +55,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Sat Nov 14 2026 Edward Murrell <edward@murrell.co.nz> - 0.7.1-1
+- Fix renaming and creating objects whose names contain a comma or
+  other special character.
+- Show full names containing a comma in group members and the Raw
+  LDAP tree.
+
 * Wed Nov 11 2026 Edward Murrell <edward@murrell.co.nz> - 0.7.0-1
 - Add multi-select and bulk Enable, Disable, Reset Password and Move
   for users, and bulk Enable, Disable and Move for computers.

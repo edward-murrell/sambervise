@@ -1,5 +1,6 @@
 #include "sbv-groups-backend.h"
 #include "../sbv-error.h"
+#include "sbv-dn.h"
 
 #include <ldap.h>
 #include <lber.h>
@@ -406,7 +407,7 @@ create_group_thread (GTask *task, gpointer source, gpointer task_data,
     return;
   }
 
-  char *dn = g_strdup_printf ("CN=%s,%s", d->sam, d->container_dn);
+  char *dn = sbv_dn_build ("CN", d->sam, d->container_dn);
 
   /* groupType is stored as a signed 32-bit; the security bit is the high
    * bit so we have to format with %d and let the natural signed wrap-around

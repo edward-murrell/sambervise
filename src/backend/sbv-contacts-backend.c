@@ -1,5 +1,6 @@
 #include "sbv-contacts-backend.h"
 #include "../sbv-error.h"
+#include "sbv-dn.h"
 
 #include <ldap.h>
 #include <lber.h>
@@ -201,7 +202,7 @@ create_thread (GTask *task, gpointer source, gpointer task_data,
     return;
   }
 
-  char *dn = g_strdup_printf ("CN=%s,%s", d->cn, d->container_dn);
+  char *dn = sbv_dn_build ("CN", d->cn, d->container_dn);
 
   char *oc_vals[]    = { "top", "person", "organizationalPerson", "contact", NULL };
   char *cn_vals[]    = { d->cn, NULL };
@@ -410,20 +411,34 @@ update_thread (GTask *task, gpointer source, gpointer task_data,
 
   /* CN is the RDN — needs a rename. */
   if (d->cn && *d->cn) {
-    char       *new_rdn = g_strdup_printf ("CN=%s", d->cn);
-    const char *comma   = strchr (d->dn, ',');
-    const char *parent  = comma ? comma + 1 : "";
-    int rc = ldap_rename_s (ld, d->dn, new_rdn, NULL, 1, NULL, NULL);
-    if (rc != LDAP_SUCCESS) {
-      g_free (new_rdn);
+    char *old_rdn = NULL, *parent = NULL;
+    if (!sbv_dn_split (d->dn, &old_rdn, &parent)) {
       g_free (effective_dn);
       sbv_connection_release_ldap (conn);
       g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
-                               "Rename failed: %s", ldap_err2string (rc));
+                               "Rename failed: cannot parse %s", d->dn);
       return;
     }
-    g_free (effective_dn);
-    effective_dn = g_strdup_printf ("CN=%s,%s", d->cn, parent);
+    char *new_rdn = sbv_dn_build ("CN", d->cn, NULL);
+
+    /* Skip the rename when the name is unchanged. */
+    if (strcmp (new_rdn, old_rdn) != 0) {
+      int rc = ldap_rename_s (ld, d->dn, new_rdn, NULL, 1, NULL, NULL);
+      if (rc != LDAP_SUCCESS) {
+        g_free (old_rdn);
+        g_free (parent);
+        g_free (new_rdn);
+        g_free (effective_dn);
+        sbv_connection_release_ldap (conn);
+        g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                                 "Rename failed: %s", ldap_err2string (rc));
+        return;
+      }
+      g_free (effective_dn);
+      effective_dn = g_strdup_printf ("%s,%s", new_rdn, parent);
+    }
+    g_free (old_rdn);
+    g_free (parent);
     g_free (new_rdn);
   }
 

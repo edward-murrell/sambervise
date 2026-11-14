@@ -84,6 +84,17 @@ sbv_dn_escape_value (const char *value)
   return g_string_free (out, FALSE);
 }
 
+char *
+sbv_dn_build (const char *type, const char *value, const char *parent)
+{
+  char *escaped = sbv_dn_escape_value (value);
+  char *dn      = (parent && *parent)
+                    ? g_strdup_printf ("%s=%s,%s", type, escaped, parent)
+                    : g_strdup_printf ("%s=%s", type, escaped);
+  g_free (escaped);
+  return dn;
+}
+
 gboolean
 sbv_dn_split (const char *dn, char **rdn, char **parent)
 {

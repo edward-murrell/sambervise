@@ -33,9 +33,8 @@ Bug fixes ship as a patch bump.
   and the window reloads the other panels.
 - Follow-ups (open):
   - Container picker in the create dialogs instead of a typed DN.
-  - The existing user and contact rename code splits DNs on the first
-    comma, so a CN containing an escaped comma renames wrongly. Switch it
-    to `sbv_dn_split`.
+  - *(DONE in 0.7.1)* User and contact renames now use `sbv_dn_split`
+    and `sbv_dn_build`. Create paths escape the CN too.
   - GPO links (R15) and delegation (R17) build on this. Bulk move (R8)
     is done.
 
