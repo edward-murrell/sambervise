@@ -7,6 +7,7 @@
 #include "sbv-contacts-panel.h"
 #include "sbv-ous-panel.h"
 #include "sbv-ldap-panel.h"
+#include "sbv-domain-panel.h"
 #include "../backend/sbv-idmap-hints.h"
 
 #include <krb5.h>
@@ -24,6 +25,7 @@ struct _SbvWindow {
   GtkListBoxRow        *nav_computers_row;
   GtkListBoxRow        *nav_contacts_row;
   GtkListBoxRow        *nav_ous_row;
+  GtkListBoxRow        *nav_domain_row;
   GtkListBoxRow        *nav_ldap_row;
   GtkWidget            *nav_separator;
   GtkButton            *add_conn_btn;
@@ -46,6 +48,7 @@ struct _SbvWindow {
   SbvContactsPanel     *contacts_panel;
   SbvOusPanel          *ous_panel;
   SbvLdapPanel         *ldap_panel;
+  SbvDomainPanel       *domain_panel;
 };
 
 G_DEFINE_TYPE (SbvWindow, sbv_window, ADW_TYPE_APPLICATION_WINDOW)
@@ -368,6 +371,8 @@ on_nav_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
     gtk_stack_set_visible_child_name (self->content_stack, "contacts");
   else if (row == self->nav_ous_row)
     gtk_stack_set_visible_child_name (self->content_stack, "ous");
+  else if (row == self->nav_domain_row)
+    gtk_stack_set_visible_child_name (self->content_stack, "domain");
   else if (row == self->nav_ldap_row)
     gtk_stack_set_visible_child_name (self->content_stack, "ldap");
 }
@@ -430,6 +435,17 @@ on_group_membership_changed (SbvGroupsPanel *panel, gpointer user_data)
   sbv_computers_panel_load (self->computers_panel, self->conn);
 }
 
+/* The domain policy changed, so password expiry and lockout status in
+ * the Users panel may have too. */
+static void
+on_policy_changed (SbvDomainPanel *panel, gpointer user_data)
+{
+  (void) panel;
+  SbvWindow *self = SBV_WINDOW (user_data);
+  if (!self->conn) return;
+  sbv_users_panel_load (self->users_panel, self->conn);
+}
+
 /* "win.refresh" (header button, F5, Ctrl+R): re-read every panel from the
  * DC. Each panel keeps its selection and drops unsaved edits. The Raw LDAP
  * panel re-reads the open entry and keeps its tree. */
@@ -445,6 +461,7 @@ on_refresh_action (GtkWidget *widget, const char *action_name, GVariant *param)
   sbv_computers_panel_load (self->computers_panel, self->conn);
   sbv_contacts_panel_load  (self->contacts_panel,  self->conn);
   sbv_ous_panel_load       (self->ous_panel,       self->conn);
+  sbv_domain_panel_load    (self->domain_panel,    self->conn);
   sbv_ldap_panel_refresh   (self->ldap_panel);
   sbv_window_show_toast (self, "Reloaded from the server");
 }
@@ -482,6 +499,7 @@ sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profi
   sbv_computers_panel_load (self->computers_panel, conn);
   sbv_contacts_panel_load  (self->contacts_panel,  conn);
   sbv_ous_panel_load       (self->ous_panel,       conn);
+  sbv_domain_panel_load    (self->domain_panel,    conn);
   sbv_ldap_panel_load      (self->ldap_panel,      conn);
 
   status_bar_update_identity (self);
@@ -519,6 +537,7 @@ sbv_window_class_init (SbvWindowClass *klass)
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_computers_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_contacts_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_ous_row);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, nav_domain_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_ldap_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_separator);
   gtk_widget_class_bind_template_child (wc, SbvWindow, add_conn_btn);
@@ -548,12 +567,14 @@ sbv_window_init (SbvWindow *self)
   self->contacts_panel  = SBV_CONTACTS_PANEL  (sbv_contacts_panel_new ());
   self->ous_panel       = SBV_OUS_PANEL       (sbv_ous_panel_new ());
   self->ldap_panel      = SBV_LDAP_PANEL      (sbv_ldap_panel_new ());
+  self->domain_panel    = SBV_DOMAIN_PANEL    (sbv_domain_panel_new ());
 
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->users_panel),     "users");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->groups_panel),    "groups");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->computers_panel), "computers");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->contacts_panel),  "contacts");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->ous_panel),       "ous");
+  gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->domain_panel),    "domain");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->ldap_panel),      "ldap");
 
   g_signal_connect (self->add_conn_btn,  "clicked",
@@ -570,6 +591,8 @@ sbv_window_init (SbvWindow *self)
                     G_CALLBACK (on_account_membership_changed), self);
   g_signal_connect (self->groups_panel,    "membership-changed",
                     G_CALLBACK (on_group_membership_changed), self);
+  g_signal_connect (self->domain_panel,    "policy-changed",
+                    G_CALLBACK (on_policy_changed), self);
 }
 
 GtkWidget *

@@ -121,9 +121,12 @@ Bug fixes ship as a patch bump.
 
 ## Phase 4: Domain-level policy and structure
 
-### R11. Domain password and lockout policy  *(open)*
+### R11. Domain password and lockout policy  *(DONE in 0.9.0)*
 - Form over attributes on the domain root: `minPwdLength`,
   `lockoutThreshold`, `maxPwdAge` and related.
+- Done: Domain page form (`src/ui/sbv-domain-panel.c`). Saves only the
+  changed attributes. Values that aren't whole days or minutes are kept
+  unless edited.
 
 ### R12. Fine-grained password policies (PSOs)  *(open)*
 - `msDS-PasswordSettings` objects in the Password Settings Container,
@@ -134,9 +137,11 @@ Bug fixes ship as a patch bump.
 - Then create sites and subnets and assign subnets to sites, all in the
   Configuration partition.
 
-### R14. FSMO role owner display  *(open)*
+### R14. FSMO role owner display  *(DONE in 0.9.0)*
 - Read `fSMORoleOwner` for health checks.
 - Transfers stay with `samba-tool fsmo`.
+- Done: Domain page lists the five roles plus the two DNS partition
+  roles, with host and site, and flags holders that are deleted DCs.
 
 ## Phase 5: Harder but high-value
 

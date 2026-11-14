@@ -55,6 +55,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Sat Nov 14 2026 Edward Murrell <edward@murrell.co.nz> - 0.9.0-1
+- Add a Domain page to view and edit the password and lockout policy.
+- Show the DC that holds each FSMO role on the Domain page.
+
 * Sat Nov 14 2026 Edward Murrell <edward@murrell.co.nz> - 0.8.0-1
 - Add a Browse button to pick the container in the create dialogs.
 - Add bulk Add to Group and Delete for users and computers.

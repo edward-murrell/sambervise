@@ -5,6 +5,14 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - Unreleased
+
+### Added
+- A Domain page in the sidebar. It shows the domain password policy
+  and account lockout settings, and lets you change them.
+- The Domain page lists which DC holds each FSMO role, with its host
+  name and site. A role held by a deleted DC gets a warning.
+
 ## [0.8.0] - 2026-11-14
 
 ### Added
