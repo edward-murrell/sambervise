@@ -153,6 +153,28 @@ test_names (void)
   g_free (long_label);
 }
 
+/* Hints keep the zone's network, and fall back to private ranges. */
+static void
+test_value_hint (void)
+{
+  char *h;
+  h = sbv_dns_value_hint (SBV_DNS_TYPE_A, "10.20.30.40");
+  g_assert_cmpstr (h, ==, "10.20.30.x");
+  g_free (h);
+  h = sbv_dns_value_hint (SBV_DNS_TYPE_A, NULL);
+  g_assert_cmpstr (h, ==, "192.168.1.10");
+  g_free (h);
+  h = sbv_dns_value_hint (SBV_DNS_TYPE_AAAA, "fd12:3456:789a:1::5");
+  g_assert_cmpstr (h, ==, "fd12:3456:789a:1::x");
+  g_free (h);
+  h = sbv_dns_value_hint (SBV_DNS_TYPE_AAAA, "junk");
+  g_assert_cmpstr (h, ==, "fd00::10");
+  g_free (h);
+  h = sbv_dns_value_hint (SBV_DNS_TYPE_CNAME, NULL);
+  g_assert_cmpstr (h, ==, "host.example.com");
+  g_free (h);
+}
+
 /* Short or truncated values don't decode. */
 static void
 test_malformed (void)
@@ -171,6 +193,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/dns/name-round-trip", test_name_round_trip);
   g_test_add_func ("/dns/soa",             test_soa);
   g_test_add_func ("/dns/names",           test_names);
+  g_test_add_func ("/dns/value-hint",      test_value_hint);
   g_test_add_func ("/dns/malformed",       test_malformed);
   return g_test_run ();
 }

@@ -55,6 +55,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Sat Nov 14 2026 Edward Murrell <edward@murrell.co.nz> - 0.10.1-1
+- Base the A and AAAA value hint on the zone's own addresses.
+
 * Sat Nov 14 2026 Edward Murrell <edward@murrell.co.nz> - 0.10.0-1
 - Add a DNS page to browse AD-integrated zones and records.
 - Add, edit and delete A, AAAA, CNAME and PTR records.

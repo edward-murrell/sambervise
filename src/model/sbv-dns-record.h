@@ -35,7 +35,7 @@ typedef struct {
   guint32  serial;
   guint32  ttl;
   guint32  timestamp;   /* hours since 1601; 0 for a static record */
-  char    *value;       /* data as text, e.g. "192.0.2.1" or "host.example.com" */
+  char    *value;       /* data as text, e.g. "192.168.1.5" or "host.example.com" */
   GBytes  *raw;         /* the whole value as stored, for exact deletes */
 } SbvDnsRecord;
 
@@ -61,6 +61,13 @@ GBytes       *sbv_dns_record_build (guint16      type,
                                     guint32      ttl,
                                     guint32      serial,
                                     GError     **error);
+
+/* Returns a placeholder for the value of a new A or AAAA record. With a
+ * `sample` address from the zone, it keeps that network: "192.168.1.5"
+ * gives "192.168.1.x", and "fd12:3456:789a:1::5" gives
+ * "fd12:3456:789a:1::x". Without one it gives "192.168.1.10" or
+ * "fd00::10". Other types give "host.example.com". Caller frees. */
+char         *sbv_dns_value_hint   (guint16 type, const char *sample);
 
 /* Reads the serial from an SOA dnsRecord value. Returns FALSE when it
  * isn't a well-formed SOA record. */

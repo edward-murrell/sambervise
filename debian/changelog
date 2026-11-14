@@ -1,3 +1,9 @@
+sambervise (0.10.1) UNRELEASED; urgency=medium
+
+  * Base the A and AAAA value hint on the zone's own addresses.
+
+ -- Edward Murrell <edward@murrell.co.nz>  Sat, 14 Nov 2026 21:56:56 +1100
+
 sambervise (0.10.0) unstable; urgency=medium
 
   * Add a DNS page to browse AD-integrated zones and records.

@@ -328,10 +328,30 @@ sbv_dns_record_build (guint16 type, const char *value, guint32 ttl,
 bad_value:
   g_byte_array_free (buf, TRUE);
   g_set_error (error, SBV_ERROR, SBV_ERROR_LDAP,
-               type == SBV_DNS_TYPE_A    ? "Enter an IPv4 address, such as 192.0.2.10."
-             : type == SBV_DNS_TYPE_AAAA ? "Enter an IPv6 address, such as 2001:db8::10."
+               type == SBV_DNS_TYPE_A    ? "Enter an IPv4 address, such as 192.168.1.10."
+             : type == SBV_DNS_TYPE_AAAA ? "Enter an IPv6 address, such as fd00::10."
                                          : "Enter a host name, such as host.example.com.");
   return NULL;
+}
+
+char *
+sbv_dns_value_hint (guint16 type, const char *sample)
+{
+  if (type == SBV_DNS_TYPE_A) {
+    guint8 a[4];
+    if (sample && inet_pton (AF_INET, sample, a) == 1)
+      return g_strdup_printf ("%u.%u.%u.x", a[0], a[1], a[2]);
+    return g_strdup ("192.168.1.10");
+  }
+  if (type == SBV_DNS_TYPE_AAAA) {
+    guint8 a[16];
+    if (sample && inet_pton (AF_INET6, sample, a) == 1)
+      return g_strdup_printf ("%x:%x:%x:%x::x",
+                              (a[0] << 8) | a[1], (a[2] << 8) | a[3],
+                              (a[4] << 8) | a[5], (a[6] << 8) | a[7]);
+    return g_strdup ("fd00::10");
+  }
+  return g_strdup ("host.example.com");
 }
 
 gboolean

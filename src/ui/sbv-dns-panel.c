@@ -17,6 +17,8 @@ struct _SbvDnsPanel {
   guint          zones_gen;
   guint          records_gen;
   char          *filter_text;
+  char          *sample_a;       /* an A address in the zone, for hints */
+  char          *sample_aaaa;    /* an AAAA address in the zone */
 
   GtkWidget *zone_list;
   GtkWidget *zone_status;
@@ -239,10 +241,11 @@ on_type_changed (GObject *obj, GParamSpec *pspec, gpointer user_data)
   (void) pspec;
   RecordCtx *ctx  = user_data;
   guint16    type = EDIT_TYPES[gtk_drop_down_get_selected (GTK_DROP_DOWN (ctx->type_drop))];
-  gtk_entry_set_placeholder_text (GTK_ENTRY (ctx->value_entry),
-      type == SBV_DNS_TYPE_A    ? "192.0.2.10"
-    : type == SBV_DNS_TYPE_AAAA ? "2001:db8::10"
-                                : "host.example.com");
+  char *hint = sbv_dns_value_hint (type,
+      type == SBV_DNS_TYPE_A    ? ctx->panel->sample_a
+    : type == SBV_DNS_TYPE_AAAA ? ctx->panel->sample_aaaa : NULL);
+  gtk_entry_set_placeholder_text (GTK_ENTRY (ctx->value_entry), hint);
+  g_free (hint);
 }
 
 /* Builds a labelled form row. */
@@ -577,6 +580,15 @@ on_records_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
   }
 
   clear_list (self->records_list);
+  g_clear_pointer (&self->sample_a, g_free);
+  g_clear_pointer (&self->sample_aaaa, g_free);
+  for (guint i = 0; i < entries->len; i++) {
+    SbvDnsEntry *e = g_ptr_array_index (entries, i);
+    if (!self->sample_a && e->record->type == SBV_DNS_TYPE_A)
+      self->sample_a = g_strdup (e->record->value);
+    if (!self->sample_aaaa && e->record->type == SBV_DNS_TYPE_AAAA)
+      self->sample_aaaa = g_strdup (e->record->value);
+  }
   /* Rows take ownership of the entries. */
   g_ptr_array_set_free_func (entries, NULL);
   for (guint i = 0; i < entries->len; i++)
@@ -614,6 +626,8 @@ on_zone_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
   g_free (self->zone_dn);
   g_free (self->zone_name);
   self->zone_dn   = zone ? g_strdup (zone->dn)   : NULL;
+  g_clear_pointer (&self->sample_a, g_free);
+  g_clear_pointer (&self->sample_aaaa, g_free);
   self->zone_name = zone ? g_strdup (zone->name) : NULL;
 
   gtk_label_set_text (GTK_LABEL (self->zone_title), zone ? zone->name : "");
@@ -836,6 +850,8 @@ sbv_dns_panel_finalize (GObject *object)
   g_free (self->zone_name);
   g_free (self->reselect_zone);
   g_free (self->filter_text);
+  g_free (self->sample_a);
+  g_free (self->sample_aaaa);
   G_OBJECT_CLASS (sbv_dns_panel_parent_class)->finalize (object);
 }
 
