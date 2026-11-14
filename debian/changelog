@@ -1,9 +1,9 @@
-sambervise (0.10.0) UNRELEASED; urgency=medium
+sambervise (0.10.0) unstable; urgency=medium
 
   * Add a DNS page to browse AD-integrated zones and records.
   * Add, edit and delete A, AAAA, CNAME and PTR records.
 
- -- Edward Murrell <edward@murrell.co.nz>  Sat, 14 Nov 2026 20:46:43 +1100
+ -- Edward Murrell <edward@murrell.co.nz>  Sat, 14 Nov 2026 21:12:20 +1100
 
 sambervise (0.9.0) unstable; urgency=medium
 
