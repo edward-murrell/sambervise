@@ -7,10 +7,11 @@ set(TEST_COMMON
     ${CMAKE_SOURCE_DIR}/src/model/sbv-ou.c
     ${CMAKE_SOURCE_DIR}/src/model/sbv-search.c
     ${CMAKE_SOURCE_DIR}/src/model/sbv-domain.c
+    ${CMAKE_SOURCE_DIR}/src/model/sbv-dns-record.c
     ${CMAKE_SOURCE_DIR}/src/backend/sbv-dn.c
 )
 
-foreach(T users groups computers contacts ous dn search domain)
+foreach(T users groups computers contacts ous dn search domain dns)
     add_executable(test-${T} test-${T}.c ${TEST_COMMON})
     target_include_directories(test-${T} PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(test-${T} PRIVATE

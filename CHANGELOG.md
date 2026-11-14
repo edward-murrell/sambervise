@@ -5,6 +5,16 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - Unreleased
+
+### Added
+- A DNS page in the sidebar for AD-integrated DNS zones. It lists the
+  zones and the records in each, with a search box.
+- Add, edit and delete A, AAAA, CNAME and PTR records. NS, SOA, MX, SRV
+  and TXT records are shown read-only.
+- Each DNS change raises the zone's SOA serial, so secondary DNS
+  servers pick it up.
+
 ## [0.9.0] - 2026-11-14
 
 ### Added

@@ -8,6 +8,7 @@
 #include "sbv-ous-panel.h"
 #include "sbv-ldap-panel.h"
 #include "sbv-domain-panel.h"
+#include "sbv-dns-panel.h"
 #include "../backend/sbv-idmap-hints.h"
 
 #include <krb5.h>
@@ -26,6 +27,7 @@ struct _SbvWindow {
   GtkListBoxRow        *nav_contacts_row;
   GtkListBoxRow        *nav_ous_row;
   GtkListBoxRow        *nav_domain_row;
+  GtkListBoxRow        *nav_dns_row;
   GtkListBoxRow        *nav_ldap_row;
   GtkWidget            *nav_separator;
   GtkButton            *add_conn_btn;
@@ -49,6 +51,7 @@ struct _SbvWindow {
   SbvOusPanel          *ous_panel;
   SbvLdapPanel         *ldap_panel;
   SbvDomainPanel       *domain_panel;
+  SbvDnsPanel          *dns_panel;
 };
 
 G_DEFINE_TYPE (SbvWindow, sbv_window, ADW_TYPE_APPLICATION_WINDOW)
@@ -373,6 +376,8 @@ on_nav_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
     gtk_stack_set_visible_child_name (self->content_stack, "ous");
   else if (row == self->nav_domain_row)
     gtk_stack_set_visible_child_name (self->content_stack, "domain");
+  else if (row == self->nav_dns_row)
+    gtk_stack_set_visible_child_name (self->content_stack, "dns");
   else if (row == self->nav_ldap_row)
     gtk_stack_set_visible_child_name (self->content_stack, "ldap");
 }
@@ -462,6 +467,7 @@ on_refresh_action (GtkWidget *widget, const char *action_name, GVariant *param)
   sbv_contacts_panel_load  (self->contacts_panel,  self->conn);
   sbv_ous_panel_load       (self->ous_panel,       self->conn);
   sbv_domain_panel_load    (self->domain_panel,    self->conn);
+  sbv_dns_panel_load       (self->dns_panel,       self->conn);
   sbv_ldap_panel_refresh   (self->ldap_panel);
   sbv_window_show_toast (self, "Reloaded from the server");
 }
@@ -500,6 +506,7 @@ sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profi
   sbv_contacts_panel_load  (self->contacts_panel,  conn);
   sbv_ous_panel_load       (self->ous_panel,       conn);
   sbv_domain_panel_load    (self->domain_panel,    conn);
+  sbv_dns_panel_load       (self->dns_panel,       conn);
   sbv_ldap_panel_load      (self->ldap_panel,      conn);
 
   status_bar_update_identity (self);
@@ -538,6 +545,7 @@ sbv_window_class_init (SbvWindowClass *klass)
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_contacts_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_ous_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_domain_row);
+  gtk_widget_class_bind_template_child (wc, SbvWindow, nav_dns_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_ldap_row);
   gtk_widget_class_bind_template_child (wc, SbvWindow, nav_separator);
   gtk_widget_class_bind_template_child (wc, SbvWindow, add_conn_btn);
@@ -568,6 +576,7 @@ sbv_window_init (SbvWindow *self)
   self->ous_panel       = SBV_OUS_PANEL       (sbv_ous_panel_new ());
   self->ldap_panel      = SBV_LDAP_PANEL      (sbv_ldap_panel_new ());
   self->domain_panel    = SBV_DOMAIN_PANEL    (sbv_domain_panel_new ());
+  self->dns_panel       = SBV_DNS_PANEL       (sbv_dns_panel_new ());
 
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->users_panel),     "users");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->groups_panel),    "groups");
@@ -575,6 +584,7 @@ sbv_window_init (SbvWindow *self)
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->contacts_panel),  "contacts");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->ous_panel),       "ous");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->domain_panel),    "domain");
+  gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->dns_panel),       "dns");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->ldap_panel),      "ldap");
 
   g_signal_connect (self->add_conn_btn,  "clicked",

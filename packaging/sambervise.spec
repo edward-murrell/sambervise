@@ -55,6 +55,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Sat Nov 14 2026 Edward Murrell <edward@murrell.co.nz> - 0.10.0-1
+- Add a DNS page to browse AD-integrated zones and records.
+- Add, edit and delete A, AAAA, CNAME and PTR records.
+
 * Sat Nov 14 2026 Edward Murrell <edward@murrell.co.nz> - 0.9.0-1
 - Add a Domain page to view and edit the password and lockout policy.
 - Show the DC that holds each FSMO role on the Domain page.

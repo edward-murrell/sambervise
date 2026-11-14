@@ -112,12 +112,19 @@ Bug fixes ship as a patch bump.
 
 ## Phase 3: DNS
 
-### R10. DNS management  *(open)*
+### R10. DNS management  *(first cut in 0.10.0)*
 - Zones live in LDAP as `dnsZone` and `dnsNode` objects under the
   `DomainDnsZones` and `ForestDnsZones` partitions. No RPC needed.
 - Main work: parse and build the binary `dnsRecord` blobs (MS-DNSP).
 - First cut: A, AAAA, CNAME and PTR records in existing zones.
 - Later: zone creation, SRV, MX and TXT.
+- Done in 0.10.0: DNS page (`src/ui/sbv-dns-panel.c`). Lists zones from
+  DomainDnsZones, ForestDnsZones and CN=System. Decodes dnsRecord in
+  `src/model/sbv-dns-record.c`. Adds, edits and deletes A, AAAA, CNAME
+  and PTR, and raises the SOA serial on each change. Other types are
+  read-only.
+- Open: create a PTR alongside a new A record, aging and scavenging
+  flags, and editing SRV, MX and TXT.
 
 ## Phase 4: Domain-level policy and structure
 
