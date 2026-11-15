@@ -1,9 +1,9 @@
-sambervise (0.11.0) UNRELEASED; urgency=medium
+sambervise (0.11.0) unstable; urgency=medium
 
   * Add fine-grained password policies to the Domain page.
   * Show each user's password policy on the Users page.
 
- -- Edward Murrell <edward@murrell.co.nz>  Sun, 15 Nov 2026 09:04:31 +1100
+ -- Edward Murrell <edward@murrell.co.nz>  Sun, 15 Nov 2026 15:03:35 +1100
 
 sambervise (0.10.1) unstable; urgency=medium
 
