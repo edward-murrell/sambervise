@@ -29,6 +29,7 @@ struct _SbvUser {
   gboolean    password_expired;
   char      **member_of;        /* memberOf DNs, owned */
   gint        primary_group_id; /* RID; -1 = not set */
+  char       *resultant_pso;    /* msDS-ResultantPSO DN, or NULL */
   /* Windows profile */
   char       *home_directory;
   char       *home_drive;
@@ -60,6 +61,7 @@ sbv_user_finalize (GObject *object)
   g_free (self->script_path);
   g_free (self->profile_path);
   g_strfreev (self->member_of);
+  g_free (self->resultant_pso);
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   G_OBJECT_CLASS (sbv_user_parent_class)->finalize (object);
 }
@@ -175,6 +177,10 @@ gint  sbv_user_get_primary_group_id (SbvUser *self) { return self->primary_group
 void  sbv_user_set_member_of        (SbvUser *self, char **dns) { g_strfreev (self->member_of); self->member_of = dns; }
 void  sbv_user_set_primary_group_id (SbvUser *self, gint rid) { self->primary_group_id = rid; }
 
+/* Resultant password policy accessors */
+const char *sbv_user_get_resultant_pso (SbvUser *self) { return self->resultant_pso; }
+void sbv_user_set_resultant_pso (SbvUser *self, const char *dn) { g_free (self->resultant_pso); self->resultant_pso = g_strdup (dn); }
+
 /* Windows profile accessors */
 void sbv_user_set_home_directory  (SbvUser *self, const char *v) { g_free (self->home_directory); self->home_directory = g_strdup (v); }
 void sbv_user_set_home_drive      (SbvUser *self, const char *v) { g_free (self->home_drive);     self->home_drive     = g_strdup (v); }
@@ -265,4 +271,31 @@ sbv_user_template_path (const char *path, const char *template_sam,
   }
   g_string_free (expanded, TRUE);
   return g_string_free (out, FALSE);
+}
+
+char *
+sbv_user_clean_diagnostic (const char *diag)
+{
+  if (!diag) return NULL;
+  const char *p = diag;
+
+  /* "0000052D: " */
+  const char *colon = strchr (p, ':');
+  if (colon && colon - p == 8) {
+    gboolean hex = TRUE;
+    for (const char *c = p; c < colon; c++)
+      if (!g_ascii_isxdigit (*c)) hex = FALSE;
+    if (hex) p = colon + 1;
+  }
+
+  /* "Constraint violation - check_password_restrictions: " */
+  const char *fn = strstr (p, "check_password_restrictions:");
+  if (fn) p = fn + strlen ("check_password_restrictions:");
+
+  while (g_ascii_isspace (*p)) p++;
+  if (!*p) return NULL;
+
+  char *out = g_strstrip (g_strdup (p));
+  out[0] = g_ascii_toupper (out[0]);
+  return out;
 }

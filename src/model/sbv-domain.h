@@ -44,6 +44,40 @@ gint64 sbv_interval_from_minutes (gint64 minutes, gboolean zero_is_never);
  * is fine, otherwise a message for the user. Caller frees. */
 char  *sbv_domain_policy_check   (const SbvDomainPolicy *policy);
 
+/* A fine-grained password policy: an msDS-PasswordSettings object (R12).
+ * `policy` holds its eight settings, with SBV_PWD_COMPLEX in
+ * pwd_properties for msDS-PasswordComplexityEnabled. */
+typedef struct {
+  char            *dn;           /* NULL until created */
+  char            *name;         /* cn */
+  char            *description;  /* or NULL */
+  gint64           precedence;   /* lower wins */
+  gboolean         reversible;   /* msDS-PasswordReversibleEncryptionEnabled */
+  SbvDomainPolicy  policy;
+  char           **applies_to;   /* msDS-PSOAppliesTo DNs, or NULL */
+} SbvPso;
+
+/* Makes a new policy with the settings of `base`, or zeros when NULL.
+ * Free with sbv_pso_free. */
+SbvPso  *sbv_pso_new        (const SbvDomainPolicy *base);
+
+/* Deep-copies a policy. */
+SbvPso  *sbv_pso_copy       (const SbvPso *pso);
+
+void     sbv_pso_free       (SbvPso *pso);
+
+/* Checks a policy for values the DC rejects. Returns NULL when it is
+ * fine, otherwise a message for the user. Caller frees. */
+char    *sbv_pso_check      (const SbvPso *pso);
+
+/* Orders policies by precedence, then name. For g_ptr_array_sort on an
+ * array of SbvPso pointers. */
+gint     sbv_pso_compare    (gconstpointer a, gconstpointer b);
+
+/* Says whether two lists of DNs hold the same DNs, in any order. NULL
+ * counts as empty. */
+gboolean sbv_dn_lists_equal (const char * const *a, const char * const *b);
+
 /* One FSMO role and the DC that holds it. */
 typedef struct {
   char     *role;        /* e.g. "PDC Emulator" */

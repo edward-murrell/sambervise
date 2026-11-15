@@ -55,6 +55,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Sun Nov 15 2026 Edward Murrell <edward@murrell.co.nz> - 0.11.0-1
+- Add fine-grained password policies to the Domain page.
+- Show each user's password policy on the Users page.
+
 * Sat Nov 14 2026 Edward Murrell <edward@murrell.co.nz> - 0.10.1-1
 - Base the A and AAAA value hint on the zone's own addresses.
 

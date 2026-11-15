@@ -135,9 +135,15 @@ Bug fixes ship as a patch bump.
   changed attributes. Values that aren't whole days or minutes are kept
   unless edited.
 
-### R12. Fine-grained password policies (PSOs)  *(open)*
+### R12. Fine-grained password policies (PSOs)  *(DONE in 0.11.0)*
 - `msDS-PasswordSettings` objects in the Password Settings Container,
   applied to users or groups. Reuses the R11 form.
+- Done: list, create, edit, rename and delete on the Domain page
+  (`src/ui/sbv-pso-dialog.c`, `src/backend/sbv-pso-backend.c`). The
+  R11 form is now `src/ui/sbv-policy-form.c`. The Users page shows each
+  user's policy from `msDS-ResultantPSO`.
+- Not done: lockout end times in the Users page still use the domain
+  lockout duration for users under a fine-grained policy.
 
 ### R13. Sites and subnets  *(open)*
 - Start with a read-only view of which DC sits in which site.

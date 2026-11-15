@@ -52,6 +52,7 @@ add_executable(sambervise
     backend/sbv-ou-backend.c
     backend/sbv-bulk.c
     backend/sbv-domain-backend.c
+    backend/sbv-pso-backend.c
     backend/sbv-dnszone-backend.c
     ui/sbv-window.c
     ui/sbv-connect-dialog.c
@@ -68,6 +69,8 @@ add_executable(sambervise
     ui/sbv-ou-row.c
     ui/sbv-ous-panel.c
     ui/sbv-domain-panel.c
+    ui/sbv-policy-form.c
+    ui/sbv-pso-dialog.c
     ui/sbv-dns-panel.c
     ui/sbv-create-ou-dialog.c
     ui/sbv-move-dialog.c

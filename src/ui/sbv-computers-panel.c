@@ -1412,6 +1412,9 @@ sbv_computers_panel_init (SbvComputersPanel *self)
     self->list_box = gtk_list_box_new ();
     gtk_list_box_set_selection_mode (GTK_LIST_BOX (self->list_box),
                                       GTK_SELECTION_MULTIPLE);
+    /* A single-click activation adds the row to a multiple selection
+     * without clearing it, so plain clicks would pile up. */
+    gtk_list_box_set_activate_on_single_click (GTK_LIST_BOX (self->list_box), FALSE);
     gtk_list_box_set_filter_func (GTK_LIST_BOX (self->list_box),
                                    filter_func, self, NULL);
     GtkWidget *no_match = gtk_label_new ("No computers match");

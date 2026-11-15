@@ -92,6 +92,16 @@ const char * const *sbv_user_get_member_of        (SbvUser *self);
 gint                sbv_user_get_primary_group_id (SbvUser *self);
 void                sbv_user_set_member_of        (SbvUser *self, char **dns);
 void                sbv_user_set_primary_group_id (SbvUser *self, gint rid);
+/* The DN of the fine-grained password policy that covers the user
+ * (msDS-ResultantPSO), or NULL when the domain policy applies. */
+const char *sbv_user_get_resultant_pso    (SbvUser *self);
+void        sbv_user_set_resultant_pso    (SbvUser *self, const char *dn);
+/* Turns a DC's diagnostic text into a line for the user. It drops the
+ * leading error code and Samba's internal function name, so
+ * "0000052D: Constraint violation - check_password_restrictions: the
+ * password is too short." becomes "The password is too short.".
+ * Returns NULL for NULL or empty text. Caller frees. */
+char       *sbv_user_clean_diagnostic     (const char *diag);
 /* Copy-from-template helpers (R9). */
 /* userAccountControl option bits a copied user takes from its template:
  * ENCRYPTED_TEXT_PWD_ALLOWED, DONT_EXPIRE_PASSWD, SMARTCARD_REQUIRED,

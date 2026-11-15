@@ -109,6 +109,7 @@ struct _SbvUsersPanel {
   /* Policy */
   GtkWidget     *force_change_check;
   GtkWidget     *never_expires_check;
+  GtkWidget     *pso_label;
   GtkWidget     *acct_never_expires_check;
   GtkWidget     *expires_date_entry;
   GtkWidget     *save_policy_btn;
@@ -408,6 +409,16 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
   gtk_editable_set_text (GTK_EDITABLE (self->confirm_pw_entry), "");
 
   /* Policy */
+  {
+    const char *pso = sbv_user_get_resultant_pso (user);
+    char *name = pso ? sbv_dn_rdn_value (pso) : NULL;
+    char *text = name ? g_strdup_printf ("%s (fine-grained)", name)
+                      : g_strdup ("Domain policy");
+    gtk_label_set_text (GTK_LABEL (self->pso_label), text);
+    gtk_widget_set_tooltip_text (self->pso_label, pso);
+    g_free (name);
+    g_free (text);
+  }
   gtk_check_button_set_active (GTK_CHECK_BUTTON (self->force_change_check),
                                 sbv_user_get_pwd_last_set (user) == 0);
   gtk_check_button_set_active (GTK_CHECK_BUTTON (self->never_expires_check),
@@ -2092,6 +2103,9 @@ sbv_users_panel_init (SbvUsersPanel *self)
     self->list_box = gtk_list_box_new ();
     gtk_list_box_set_selection_mode (GTK_LIST_BOX (self->list_box),
                                       GTK_SELECTION_MULTIPLE);
+    /* A single-click activation adds the row to a multiple selection
+     * without clearing it, so plain clicks would pile up. */
+    gtk_list_box_set_activate_on_single_click (GTK_LIST_BOX (self->list_box), FALSE);
     gtk_list_box_set_filter_func (GTK_LIST_BOX (self->list_box),
                                    filter_func, self, NULL);
     GtkWidget *no_match = gtk_label_new ("No users match");
@@ -2291,6 +2305,12 @@ sbv_users_panel_init (SbvUsersPanel *self)
     gtk_box_append (GTK_BOX (form),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append (GTK_BOX (form), make_section_label ("Account Policy"));
+
+    self->pso_label = gtk_label_new ("");
+    gtk_label_set_xalign (GTK_LABEL (self->pso_label), 0);
+    gtk_label_set_ellipsize (GTK_LABEL (self->pso_label), PANGO_ELLIPSIZE_END);
+    gtk_box_append (GTK_BOX (form),
+                    make_field_row ("Password policy", self->pso_label));
 
     self->force_change_check = gtk_check_button_new_with_label (
       "Must change password at next logon");

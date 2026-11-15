@@ -89,6 +89,83 @@ test_parse_holder (void)
   g_assert_null (server);
 }
 
+/* Rejects a missing name, a precedence below 1 and a reset window
+ * longer than the lockout, even with lockout off. */
+static void
+test_pso_check (void)
+{
+  SbvDomainPolicy base = {
+    .min_pwd_length = 7, .pwd_history_length = 24,
+    .max_pwd_age = sbv_interval_from_days (42, TRUE),
+    .min_pwd_age = sbv_interval_from_days (1, FALSE),
+    .lockout_duration = sbv_interval_from_minutes (30, TRUE),
+    .lockout_observation_window = sbv_interval_from_minutes (30, FALSE),
+  };
+  SbvPso *pso = sbv_pso_new (&base);
+  char   *msg = sbv_pso_check (pso);
+  g_assert_nonnull (msg);   /* no name yet */
+  g_free (msg);
+
+  pso->name = g_strdup ("  Service accounts ");
+  g_assert_null (sbv_pso_check (pso));
+
+  pso->precedence = 0;
+  msg = sbv_pso_check (pso);
+  g_assert_nonnull (msg);
+  g_free (msg);
+  pso->precedence = 5;
+
+  pso->policy.lockout_observation_window = sbv_interval_from_minutes (60, FALSE);
+  msg = sbv_pso_check (pso);
+  g_assert_nonnull (msg);
+  g_free (msg);
+
+  pso->policy.lockout_duration = SBV_INTERVAL_NEVER;
+  g_assert_null (sbv_pso_check (pso));
+
+  SbvPso *copy = sbv_pso_copy (pso);
+  g_assert_cmpstr (copy->name, ==, pso->name);
+  g_assert_true (copy->name != pso->name);
+  sbv_pso_free (copy);
+  sbv_pso_free (pso);
+}
+
+/* Sorts by precedence, then name. */
+static void
+test_pso_compare (void)
+{
+  GPtrArray *a = g_ptr_array_new_with_free_func ((GDestroyNotify) sbv_pso_free);
+  const struct { const char *name; gint64 prec; } in[] = {
+    { "b", 20 }, { "z", 10 }, { "a", 20 },
+  };
+  for (guint i = 0; i < G_N_ELEMENTS (in); i++) {
+    SbvPso *p = sbv_pso_new (NULL);
+    p->name = g_strdup (in[i].name);
+    p->precedence = in[i].prec;
+    g_ptr_array_add (a, p);
+  }
+  g_ptr_array_sort (a, sbv_pso_compare);
+  g_assert_cmpstr (((SbvPso *) a->pdata[0])->name, ==, "z");
+  g_assert_cmpstr (((SbvPso *) a->pdata[1])->name, ==, "a");
+  g_assert_cmpstr (((SbvPso *) a->pdata[2])->name, ==, "b");
+  g_ptr_array_unref (a);
+}
+
+/* Compares DN lists in any order and treats NULL as empty. */
+static void
+test_dn_lists_equal (void)
+{
+  const char *a[] = { "CN=A,DC=x", "CN=B,DC=x", NULL };
+  const char *b[] = { "cn=b,dc=x", "CN=A,DC=x", NULL };
+  const char *c[] = { "CN=A,DC=x", NULL };
+  const char *e[] = { NULL };
+  g_assert_true  (sbv_dn_lists_equal (a, b));
+  g_assert_false (sbv_dn_lists_equal (a, c));
+  g_assert_false (sbv_dn_lists_equal (c, a));
+  g_assert_true  (sbv_dn_lists_equal (NULL, e));
+  g_assert_false (sbv_dn_lists_equal (NULL, c));
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -96,5 +173,8 @@ main (int argc, char *argv[])
   g_test_add_func ("/domain/intervals",    test_intervals);
   g_test_add_func ("/domain/policy-check", test_policy_check);
   g_test_add_func ("/domain/parse-holder", test_parse_holder);
+  g_test_add_func ("/domain/pso-check",    test_pso_check);
+  g_test_add_func ("/domain/pso-compare",  test_pso_compare);
+  g_test_add_func ("/domain/dn-lists-equal", test_dn_lists_equal);
   return g_test_run ();
 }

@@ -5,6 +5,24 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - Unreleased
+
+### Added
+- Fine-grained password policies on the Domain page. You can create,
+  edit, rename and delete them, and choose the users and global
+  security groups each one applies to.
+- Each policy has the same password and lockout settings as the domain
+  policy, plus a precedence. The lowest precedence wins when several
+  apply.
+- The Users page shows which password policy covers each user.
+
+### Fixed
+- Clicking one user or computer after another selected both. A plain
+  click now selects only the row clicked. Ctrl and Shift still add to
+  the selection.
+- A password that breaks the policy now gives the DC's reason, such as
+  the minimum length. It used to suggest LDAPS or STARTTLS.
+
 ## [0.10.1] - 2026-11-14
 
 ### Fixed

@@ -96,6 +96,8 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
     "homeDirectory", "homeDrive", "scriptPath", "profilePath",
     /* Group membership */
     "memberOf", "primaryGroupID",
+    /* Fine-grained password policy, computed by the DC */
+    "msDS-ResultantPSO",
     NULL
   };
 
@@ -135,6 +137,7 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
       GET_STR ("sn",                sbv_user_set_sn)
       GET_STR ("mail",              sbv_user_set_email)
       GET_STR ("description",       sbv_user_set_description)
+      GET_STR ("msDS-ResultantPSO", sbv_user_set_resultant_pso)
 
 #undef GET_STR
 
@@ -439,17 +442,42 @@ reset_pw_thread (GTask *task, gpointer source, gpointer task_data,
                              { .modv_bvals = bv_vals } };
   LDAPMod       *mods[]  = { &mod, NULL };
 
-  int rc = ldap_modify_ext_s (ld, d->dn, mods, NULL, NULL);
+  int   rc   = ldap_modify_ext_s (ld, d->dn, mods, NULL, NULL);
+  char *diag = NULL;
+  if (rc != LDAP_SUCCESS)
+    ldap_get_option (ld, LDAP_OPT_DIAGNOSTIC_MESSAGE, &diag);
+  memset (utf16, 0, utf16_len);
   g_free (utf16);
   sbv_connection_release_ldap (conn);
 
-  if (rc != LDAP_SUCCESS)
-    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
-                             "Password reset failed: %s\n"
-                             "(Hint: requires LDAPS or STARTTLS)",
-                             ldap_err2string (rc));
-  else
+  if (rc == LDAP_SUCCESS) {
     g_task_return_boolean (task, TRUE);
+    return;
+  }
+
+  const char *reason;
+  switch (rc) {
+  case LDAP_CONSTRAINT_VIOLATION:
+    reason = "The password doesn't meet the password policy.";
+    break;
+  case LDAP_CONFIDENTIALITY_REQUIRED:
+  case LDAP_UNWILLING_TO_PERFORM:
+    reason = "The DC needs an encrypted connection to set passwords. "
+             "Use Kerberos, LDAPS or STARTTLS.";
+    break;
+  case LDAP_INSUFFICIENT_ACCESS:
+    reason = "You don't have permission to reset this password.";
+    break;
+  default:
+    reason = ldap_err2string (rc);
+    break;
+  }
+  char *detail = sbv_user_clean_diagnostic (diag);
+  if (diag) ldap_memfree (diag);
+  g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_LDAP,
+                           "Password reset failed. %s%s%s", reason,
+                           detail ? "\n" : "", detail ? detail : "");
+  g_free (detail);
 }
 
 void

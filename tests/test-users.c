@@ -193,6 +193,29 @@ test_template_uac (void)
   g_assert_cmpint (sbv_user_template_uac (0x0202 | 0x10000, 0x0200), ==, 0x0202);
 }
 
+/* Strips the error code and Samba's function name from DC text. */
+static void
+test_clean_diagnostic (void)
+{
+  char *s = sbv_user_clean_diagnostic (
+    "0000052D: Constraint violation - check_password_restrictions: "
+    "the password is too short. It should be equal or longer than 12 characters!");
+  g_assert_cmpstr (s, ==,
+    "The password is too short. It should be equal or longer than 12 characters!");
+  g_free (s);
+
+  s = sbv_user_clean_diagnostic ("00002098: insufficient access");
+  g_assert_cmpstr (s, ==, "Insufficient access");
+  g_free (s);
+
+  s = sbv_user_clean_diagnostic ("plain text");
+  g_assert_cmpstr (s, ==, "Plain text");
+  g_free (s);
+
+  g_assert_null (sbv_user_clean_diagnostic (""));
+  g_assert_null (sbv_user_clean_diagnostic (NULL));
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -206,5 +229,6 @@ main (int argc, char *argv[])
   g_test_add_func ("/user/member-of", test_member_of);
   g_test_add_func ("/user/template-path", test_template_path);
   g_test_add_func ("/user/template-uac", test_template_uac);
+  g_test_add_func ("/user/clean-diagnostic", test_clean_diagnostic);
   return g_test_run ();
 }

@@ -59,6 +59,90 @@ sbv_domain_policy_check (const SbvDomainPolicy *p)
   return NULL;
 }
 
+SbvPso *
+sbv_pso_new (const SbvDomainPolicy *base)
+{
+  SbvPso *pso = g_new0 (SbvPso, 1);
+  if (base) pso->policy = *base;
+  pso->precedence = 10;
+  return pso;
+}
+
+SbvPso *
+sbv_pso_copy (const SbvPso *pso)
+{
+  SbvPso *c = g_new0 (SbvPso, 1);
+  *c = *pso;
+  c->dn          = g_strdup (pso->dn);
+  c->name        = g_strdup (pso->name);
+  c->description = g_strdup (pso->description);
+  c->applies_to  = g_strdupv (pso->applies_to);
+  return c;
+}
+
+void
+sbv_pso_free (SbvPso *pso)
+{
+  if (!pso) return;
+  g_free (pso->dn);
+  g_free (pso->name);
+  g_free (pso->description);
+  g_strfreev (pso->applies_to);
+  g_free (pso);
+}
+
+char *
+sbv_pso_check (const SbvPso *pso)
+{
+  char *name = g_strstrip (g_strdup (pso->name ? pso->name : ""));
+  gboolean empty = *name == '\0';
+  g_free (name);
+  if (empty)
+    return g_strdup ("Enter a name for the policy.");
+  if (pso->precedence < 1)
+    return g_strdup ("Precedence must be 1 or more.");
+
+  char *msg = sbv_domain_policy_check (&pso->policy);
+  if (msg) return msg;
+
+  /* The DC checks the reset window against the duration even while
+   * lockout is off. */
+  gint64 duration = sbv_interval_to_minutes (pso->policy.lockout_duration);
+  gint64 window   = sbv_interval_to_minutes (pso->policy.lockout_observation_window);
+  if (duration > 0 && window > duration)
+    return g_strdup ("The failed logon count must reset within the lockout duration.");
+  return NULL;
+}
+
+gint
+sbv_pso_compare (gconstpointer a, gconstpointer b)
+{
+  const SbvPso *pa = *(const SbvPso * const *) a;
+  const SbvPso *pb = *(const SbvPso * const *) b;
+  if (pa->precedence != pb->precedence)
+    return pa->precedence < pb->precedence ? -1 : 1;
+  return g_utf8_collate (pa->name ? pa->name : "", pb->name ? pb->name : "");
+}
+
+/* Says whether `dn` appears in `list`, comparing DNs loosely. */
+static gboolean
+dn_in_list (const char *dn, const char * const *list)
+{
+  for (guint i = 0; list && list[i]; i++)
+    if (sbv_dn_equal (dn, list[i])) return TRUE;
+  return FALSE;
+}
+
+gboolean
+sbv_dn_lists_equal (const char * const *a, const char * const *b)
+{
+  for (guint i = 0; a && a[i]; i++)
+    if (!dn_in_list (a[i], b)) return FALSE;
+  for (guint i = 0; b && b[i]; i++)
+    if (!dn_in_list (b[i], a)) return FALSE;
+  return TRUE;
+}
+
 void
 sbv_fsmo_role_free (SbvFsmoRole *role)
 {
