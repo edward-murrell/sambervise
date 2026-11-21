@@ -47,7 +47,9 @@ char    *sbv_connection_whoami_finish (SbvConnection *self,
                                         GError       **error);
 
 /* Internal: acquire/release the LDAP handle for use in backend threads.
- * Always call release after acquire, even on error. */
+ * Always call release after acquire, even on error. Acquire reconnects
+ * first when the DC has closed the connection, for example after an idle
+ * timeout. */
 struct ldap *sbv_connection_acquire_ldap (SbvConnection *self);
 void         sbv_connection_release_ldap (SbvConnection *self);
 

@@ -5,6 +5,21 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - Unreleased
+
+### Added
+- Right-click a connection in the sidebar to connect, disconnect or edit
+  it. Disconnect closes the connection and returns to the welcome page.
+
+### Fixed
+- Connecting with a password could crash the app later, for example
+  after a disconnect. The connection was freed while still in use.
+- Sambervise reconnects by itself when the DC closes an idle
+  connection. Searches used to fail with "Can't contact LDAP server"
+  until you connected again.
+- Searches no longer stall when the AD domain name doesn't lead to the
+  DC. Sambervise used to follow LDAP referrals to the domain name.
+
 ## [0.11.0] - 2026-11-15
 
 ### Added

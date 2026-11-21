@@ -55,6 +55,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Sat Nov 21 2026 Edward Murrell <edward@murrell.co.nz> - 0.12.0-1
+- Add a right-click menu on connections with Connect, Disconnect and Edit.
+- Fix a crash after connecting with a password.
+- Reconnect when the DC closes an idle connection.
+- Stop following LDAP referrals.
+
 * Sun Nov 15 2026 Edward Murrell <edward@murrell.co.nz> - 0.11.0-1
 - Add fine-grained password policies to the Domain page.
 - Show each user's password policy on the Users page.

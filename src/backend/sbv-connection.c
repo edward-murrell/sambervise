@@ -4,6 +4,9 @@
 #include <ldap.h>
 #include <lber.h>
 #include <sys/time.h>
+#include <sys/socket.h>
+#include <poll.h>
+#include <errno.h>
 #include <string.h>
 
 /* ── Minimal SASL interact struct (matches <sasl/sasl.h> sasl_interact_t)
@@ -31,6 +34,7 @@ struct _SbvConnection {
   int         port;
   gboolean    connected;
   SbvProfile *profile;   /* owned ref to the profile we're bound with     */
+  char       *password;  /* simple-bind password for reconnects, or NULL */
 };
 
 G_DEFINE_TYPE (SbvConnection, sbv_connection, G_TYPE_OBJECT)
@@ -78,12 +82,55 @@ gboolean    sbv_connection_is_connected (SbvConnection *self) { return self->con
  * free. */
 SbvProfile *sbv_connection_get_profile  (SbvConnection *self) { return self->profile; }
 
+/* Wipes and frees a password copy. */
+static void
+free_password (char *password)
+{
+  if (!password) return;
+  memset (password, 0, strlen (password));
+  g_free (password);
+}
+
+static LDAP *open_ldap (SbvProfile *profile, const char *password, GError **error);
+
+/* Says whether the DC has closed the connection. Call only while no
+ * request is outstanding, so any readable data is the DC's notice of
+ * disconnection or the end of the stream. */
+static gboolean
+connection_closed (LDAP *ld)
+{
+  ber_socket_t fd = -1;
+  if (ldap_get_option (ld, LDAP_OPT_DESC, &fd) != LDAP_OPT_SUCCESS || fd < 0)
+    return TRUE;
+
+  struct pollfd pfd = { .fd = fd, .events = POLLIN };
+  int n = poll (&pfd, 1, 0);
+  if (n < 0) return errno != EINTR;
+  if (n == 0) return FALSE;
+  return (pfd.revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) != 0;
+}
+
 /* ── LDAP handle acquire/release ───────────────────────────────────────── */
 
+/* Locks the connection and returns its handle. When the DC has closed the
+ * connection since the last request, for example after an idle timeout,
+ * it opens and binds a new one with the same profile first. */
 LDAP *
 sbv_connection_acquire_ldap (SbvConnection *self)
 {
   g_mutex_lock (&self->mutex);
+  if (self->ld && self->profile && connection_closed (self->ld)) {
+    GError *err = NULL;
+    LDAP   *ld  = open_ldap (self->profile, self->password, &err);
+    if (ld) {
+      ldap_unbind_ext_s (self->ld, NULL, NULL);
+      self->ld = ld;
+      g_message ("Reconnected to %s after the DC closed the connection", self->host);
+    } else {
+      g_warning ("Couldn't reconnect to %s: %s", self->host, err->message);
+      g_error_free (err);
+    }
+  }
   return self->ld;
 }
 
@@ -104,6 +151,8 @@ sbv_connection_disconnect (SbvConnection *self)
     self->ld = NULL;
   }
   self->connected = FALSE;
+  free_password (self->password);
+  self->password = NULL;
   g_mutex_unlock (&self->mutex);
 }
 
@@ -140,16 +189,15 @@ connect_data_free (ConnectData *d)
   g_free (d);
 }
 
-static void
-connect_thread (GTask *task, gpointer source, gpointer task_data,
-                G_GNUC_UNUSED GCancellable *cancellable)
+/* Opens a connection for `profile` and binds with Kerberos or with
+ * `password`. Returns the bound handle, or NULL with `error` set. Safe on
+ * any thread. */
+static LDAP *
+open_ldap (SbvProfile *profile, const char *password, GError **error)
 {
-  SbvConnection *self    = SBV_CONNECTION (source);
-  ConnectData   *d       = task_data;
-  SbvProfile    *profile = d->profile;
-  LDAP          *ld      = NULL;
-  int            rc;
-  int            ver     = LDAP_VERSION3;
+  LDAP *ld  = NULL;
+  int   rc;
+  int   ver = LDAP_VERSION3;
 
   const char *host = sbv_profile_get_host (profile);
   int         port = sbv_profile_get_port (profile);
@@ -162,12 +210,18 @@ connect_thread (GTask *task, gpointer source, gpointer task_data,
   g_free (uri);
 
   if (rc != LDAP_SUCCESS) {
-    g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_CONNECTION,
-                             "ldap_initialize: %s", ldap_err2string (rc));
-    return;
+    g_set_error (error, SBV_ERROR, SBV_ERROR_CONNECTION,
+                 "ldap_initialize: %s", ldap_err2string (rc));
+    return NULL;
   }
 
   ldap_set_option (ld, LDAP_OPT_PROTOCOL_VERSION, &ver);
+
+  /* Don't follow referrals. AD returns them for the DNS and Configuration
+   * partitions on subtree searches. Following one opens a new connection
+   * to the domain name, which may not reach the DC, and stalls the
+   * search. */
+  ldap_set_option (ld, LDAP_OPT_REFERRALS, LDAP_OPT_OFF);
 
   struct timeval timeout = { 10, 0 };
   ldap_set_option (ld, LDAP_OPT_NETWORK_TIMEOUT, &timeout);
@@ -182,9 +236,9 @@ connect_thread (GTask *task, gpointer source, gpointer task_data,
     rc = ldap_start_tls_s (ld, NULL, NULL);
     if (rc != LDAP_SUCCESS) {
       ldap_unbind_ext_s (ld, NULL, NULL);
-      g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_TLS,
-                               "STARTTLS failed: %s", ldap_err2string (rc));
-      return;
+      g_set_error (error, SBV_ERROR, SBV_ERROR_TLS,
+                   "STARTTLS failed: %s", ldap_err2string (rc));
+      return NULL;
     }
   }
 
@@ -196,26 +250,45 @@ connect_thread (GTask *task, gpointer source, gpointer task_data,
                                         gssapi_interact, NULL);
     if (rc != LDAP_SUCCESS) {
       ldap_unbind_ext_s (ld, NULL, NULL);
-      g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_AUTH,
-                               "GSSAPI bind failed: %s\n"
-                               "(Hint: run 'kinit user@REALM' first)",
-                               ldap_err2string (rc));
-      return;
+      g_set_error (error, SBV_ERROR, SBV_ERROR_AUTH,
+                   "GSSAPI bind failed: %s\n"
+                   "(Hint: run 'kinit user@REALM' first)",
+                   ldap_err2string (rc));
+      return NULL;
     }
   } else {
     /* Simple bind */
     struct berval cred = {
-      .bv_val = d->password,
-      .bv_len = d->password ? strlen (d->password) : 0,
+      .bv_val = (char *) password,
+      .bv_len = password ? strlen (password) : 0,
     };
     rc = ldap_sasl_bind_s (ld, sbv_profile_get_bind_dn (profile),
                             LDAP_SASL_SIMPLE, &cred, NULL, NULL, NULL);
     if (rc != LDAP_SUCCESS) {
       ldap_unbind_ext_s (ld, NULL, NULL);
-      g_task_return_new_error (task, SBV_ERROR, SBV_ERROR_AUTH,
-                               "Authentication failed: %s", ldap_err2string (rc));
-      return;
+      g_set_error (error, SBV_ERROR, SBV_ERROR_AUTH,
+                   "Authentication failed: %s", ldap_err2string (rc));
+      return NULL;
     }
+  }
+  return ld;
+}
+
+/* Worker: opens and binds, then installs the handle and keeps what a
+ * reconnect needs. Runs on a GTask thread. */
+static void
+connect_thread (GTask *task, gpointer source, gpointer task_data,
+                G_GNUC_UNUSED GCancellable *cancellable)
+{
+  SbvConnection *self    = SBV_CONNECTION (source);
+  ConnectData   *d       = task_data;
+  SbvProfile    *profile = d->profile;
+  GError        *err     = NULL;
+
+  LDAP *ld = open_ldap (profile, d->password, &err);
+  if (!ld) {
+    g_task_return_error (task, err);
+    return;
   }
 
   g_mutex_lock (&self->mutex);
@@ -224,12 +297,14 @@ connect_thread (GTask *task, gpointer source, gpointer task_data,
   self->ld        = ld;
   self->connected = TRUE;
   g_free (self->host);
-  self->host    = g_strdup (host);
-  self->port    = port;
+  self->host    = g_strdup (sbv_profile_get_host (profile));
+  self->port    = sbv_profile_get_port (profile);
   g_free (self->base_dn);
   self->base_dn = g_strdup (sbv_profile_get_base_dn (profile));
   g_clear_object (&self->profile);
   self->profile = g_object_ref (profile);
+  free_password (self->password);
+  self->password = g_strdup (d->password);
   g_mutex_unlock (&self->mutex);
 
   g_task_return_boolean (task, TRUE);

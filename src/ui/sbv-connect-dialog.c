@@ -635,10 +635,14 @@ on_connect_done (GObject *source, GAsyncResult *result, gpointer user_data)
   SbvConnectCallback cb   = d->callback;
   gpointer           data = d->callback_data;
 
+  /* Take the dialog's reference so closing it doesn't release the
+   * connection. The callback takes its own. */
+  SbvConnection *owned = g_steal_pointer (&d->pending_conn);
+  g_assert (owned == conn);
   gtk_window_destroy (GTK_WINDOW (d->dialog));
 
   cb (conn, saved_profile, data);
-  g_object_unref (conn);
+  g_object_unref (owned);
   g_clear_object (&saved_profile);
   g_object_unref (profile);
 }

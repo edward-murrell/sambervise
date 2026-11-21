@@ -52,6 +52,10 @@ struct _SbvWindow {
   SbvLdapPanel         *ldap_panel;
   SbvDomainPanel       *domain_panel;
   SbvDnsPanel          *dns_panel;
+
+  /* Right-click menu on the profile rows */
+  GtkWidget            *profile_menu;     /* GtkPopoverMenu, child of profiles_list */
+  SbvProfile           *menu_profile;     /* the row the menu opened on */
 };
 
 G_DEFINE_TYPE (SbvWindow, sbv_window, ADW_TYPE_APPLICATION_WINDOW)
@@ -60,6 +64,8 @@ G_DEFINE_TYPE (SbvWindow, sbv_window, ADW_TYPE_APPLICATION_WINDOW)
 void sbv_window_on_connected (SbvWindow *self, SbvConnection *conn, SbvProfile *profile);
 static void rebuild_profiles_list (SbvWindow *self);
 static void on_edit_profile_clicked (GtkButton *btn, gpointer user_data);
+static void on_profile_right_click (GtkGestureClick *gesture, int n_press,
+                                    double x, double y, gpointer user_data);
 
 /* ── Status bar ─────────────────────────────────────────────────────────── */
 
@@ -233,15 +239,22 @@ make_profile_row (SbvWindow *self, SbvProfile *profile, SbvProfile *active)
   gtk_box_append (GTK_BOX (box), edit_btn);
 
   gtk_list_box_row_set_child (GTK_LIST_BOX_ROW (row), box);
+
+  GtkGesture *click = gtk_gesture_click_new ();
+  gtk_gesture_single_set_button (GTK_GESTURE_SINGLE (click), GDK_BUTTON_SECONDARY);
+  g_signal_connect (click, "pressed", G_CALLBACK (on_profile_right_click), self);
+  gtk_widget_add_controller (row, GTK_EVENT_CONTROLLER (click));
   return row;
 }
 
 static void
 rebuild_profiles_list (SbvWindow *self)
 {
-  GtkWidget *child;
-  while ((child = gtk_widget_get_first_child (GTK_WIDGET (self->profiles_list))) != NULL)
-    gtk_list_box_remove (self->profiles_list, child);
+  /* Remove rows by index. The right-click menu is also a child of the
+   * list, so looping on the first child would never finish. */
+  GtkListBoxRow *row;
+  while ((row = gtk_list_box_get_row_at_index (self->profiles_list, 0)) != NULL)
+    gtk_list_box_remove (self->profiles_list, GTK_WIDGET (row));
 
   guint n = g_list_model_get_n_items (G_LIST_MODEL (self->profiles_store));
   for (guint i = 0; i < n; i++) {
@@ -333,18 +346,122 @@ on_edit_saved (SbvConnection *conn, SbvProfile *saved, gpointer user_data)
   }
 }
 
+/* Opens the edit dialog for `profile`. */
 static void
-on_edit_profile_clicked (GtkButton *btn, gpointer user_data)
+open_edit_dialog (SbvWindow *self, SbvProfile *profile)
 {
-  SbvWindow  *self    = SBV_WINDOW (user_data);
-  SbvProfile *profile = g_object_get_data (G_OBJECT (btn), "sbv-profile");
-  if (!profile) return;
-
   GtkWidget *dialog = sbv_edit_dialog_new (GTK_WINDOW (self),
                                              self->profiles_store,
                                              profile,
                                              on_edit_saved, self);
   gtk_window_present (GTK_WINDOW (dialog));
+}
+
+/* Pencil button on a profile row. */
+static void
+on_edit_profile_clicked (GtkButton *btn, gpointer user_data)
+{
+  SbvWindow  *self    = SBV_WINDOW (user_data);
+  SbvProfile *profile = g_object_get_data (G_OBJECT (btn), "sbv-profile");
+  if (profile) open_edit_dialog (self, profile);
+}
+
+/* ── Profile context menu and disconnect ────────────────────────────────── */
+
+/* Says whether `profile` is the one the window is connected with. */
+static gboolean
+is_connected_profile (SbvWindow *self, SbvProfile *profile)
+{
+  if (!self->conn || !sbv_connection_is_connected (self->conn)) return FALSE;
+  if (!self->active_profile || !profile) return FALSE;
+  return g_strcmp0 (sbv_profile_get_name (profile),
+                    sbv_profile_get_name (self->active_profile)) == 0;
+}
+
+/* Closes the connection and puts the window back to its welcome page.
+ * The panels hold plain pointers to the connection, so the window keeps
+ * its reference until the next connect replaces it. */
+static void
+disconnect (SbvWindow *self)
+{
+  if (!self->conn) return;
+  sbv_connection_disconnect (self->conn);
+  g_clear_object (&self->active_profile);
+
+  gtk_window_set_title (GTK_WINDOW (self), "Sambervise");
+  gtk_widget_set_visible (self->nav_separator,         FALSE);
+  gtk_widget_set_visible (GTK_WIDGET (self->nav_list), FALSE);
+  gtk_widget_set_visible (self->status_separator,      FALSE);
+  gtk_widget_set_visible (self->status_bar,            FALSE);
+  gtk_widget_action_set_enabled (GTK_WIDGET (self), "win.refresh", FALSE);
+  gtk_stack_set_visible_child_name (self->content_stack, "welcome");
+  rebuild_profiles_list (self);
+  sbv_window_show_toast (self, "Disconnected");
+}
+
+/* "Connect" in the profile menu. */
+static void
+on_profile_connect_action (GtkWidget *widget, const char *name, GVariant *param)
+{
+  (void) name;
+  (void) param;
+  SbvWindow *self = SBV_WINDOW (widget);
+  if (self->menu_profile) connect_to_profile (self, self->menu_profile);
+}
+
+/* "Disconnect" in the profile menu. */
+static void
+on_profile_disconnect_action (GtkWidget *widget, const char *name, GVariant *param)
+{
+  (void) name;
+  (void) param;
+  disconnect (SBV_WINDOW (widget));
+}
+
+/* "Edit…" in the profile menu. */
+static void
+on_profile_edit_action (GtkWidget *widget, const char *name, GVariant *param)
+{
+  (void) name;
+  (void) param;
+  SbvWindow *self = SBV_WINDOW (widget);
+  if (self->menu_profile) open_edit_dialog (self, self->menu_profile);
+}
+
+/* Right-click on a profile row: show Connect or Disconnect, and Edit. */
+static void
+on_profile_right_click (GtkGestureClick *gesture, int n_press,
+                        double x, double y, gpointer user_data)
+{
+  (void) n_press;
+  SbvWindow  *self    = SBV_WINDOW (user_data);
+  GtkWidget  *row     = gtk_event_controller_get_widget (GTK_EVENT_CONTROLLER (gesture));
+  SbvProfile *profile = g_object_get_data (G_OBJECT (row), "sbv-profile");
+  if (!profile) return;
+  gtk_gesture_set_state (GTK_GESTURE (gesture), GTK_EVENT_SEQUENCE_CLAIMED);
+
+  g_set_object (&self->menu_profile, profile);
+
+  GMenu *menu = g_menu_new ();
+  if (is_connected_profile (self, profile))
+    g_menu_append (menu, "Disconnect", "win.profile-disconnect");
+  else
+    g_menu_append (menu, "Connect", "win.profile-connect");
+  g_menu_append (menu, "Edit…", "win.profile-edit");
+  gtk_popover_menu_set_menu_model (GTK_POPOVER_MENU (self->profile_menu),
+                                   G_MENU_MODEL (menu));
+  g_object_unref (menu);
+
+  /* The menu lives on the list, so point at the click in list space. */
+  double lx = x, ly = y;
+  /* gtk_widget_compute_point needs GTK 4.12, newer than EL9 ships. */
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+  gtk_widget_translate_coordinates (row, GTK_WIDGET (self->profiles_list),
+                                    x, y, &lx, &ly);
+  G_GNUC_END_IGNORE_DEPRECATIONS
+  GdkRectangle at = { (int) lx, (int) ly, 1, 1 };
+  gtk_popover_set_pointing_to (GTK_POPOVER (self->profile_menu), &at);
+  gtk_popover_popup (GTK_POPOVER (self->profile_menu));
 }
 
 static void
@@ -523,6 +640,8 @@ sbv_window_dispose (GObject *object)
   g_clear_object (&self->profiles_store);
   g_clear_object (&self->conn);
   g_clear_object (&self->active_profile);
+  g_clear_object (&self->menu_profile);
+  g_clear_pointer (&self->profile_menu, gtk_widget_unparent);
   G_OBJECT_CLASS (sbv_window_parent_class)->dispose (object);
 }
 
@@ -557,6 +676,12 @@ sbv_window_class_init (SbvWindowClass *klass)
   gtk_widget_class_bind_template_child (wc, SbvWindow, status_idmap_label);
 
   gtk_widget_class_install_action (wc, "win.refresh", NULL, on_refresh_action);
+  gtk_widget_class_install_action (wc, "win.profile-connect", NULL,
+                                   on_profile_connect_action);
+  gtk_widget_class_install_action (wc, "win.profile-disconnect", NULL,
+                                   on_profile_disconnect_action);
+  gtk_widget_class_install_action (wc, "win.profile-edit", NULL,
+                                   on_profile_edit_action);
   gtk_widget_class_add_binding_action (wc, GDK_KEY_F5, 0, "win.refresh", NULL);
   gtk_widget_class_add_binding_action (wc, GDK_KEY_r, GDK_CONTROL_MASK,
                                        "win.refresh", NULL);
@@ -586,6 +711,11 @@ sbv_window_init (SbvWindow *self)
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->domain_panel),    "domain");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->dns_panel),       "dns");
   gtk_stack_add_named (self->content_stack, GTK_WIDGET (self->ldap_panel),      "ldap");
+
+  self->profile_menu = gtk_popover_menu_new_from_model (NULL);
+  gtk_popover_set_has_arrow (GTK_POPOVER (self->profile_menu), FALSE);
+  gtk_widget_set_halign (self->profile_menu, GTK_ALIGN_START);
+  gtk_widget_set_parent (self->profile_menu, GTK_WIDGET (self->profiles_list));
 
   g_signal_connect (self->add_conn_btn,  "clicked",
                     G_CALLBACK (on_add_conn_clicked), self);

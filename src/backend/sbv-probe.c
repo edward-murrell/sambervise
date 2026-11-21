@@ -208,6 +208,12 @@ probe_thread (GTask *task, gpointer source, gpointer task_data,
 
   ldap_set_option (ld, LDAP_OPT_PROTOCOL_VERSION, &ver);
 
+  /* Don't follow referrals. AD returns them for the DNS and Configuration
+   * partitions on subtree searches. Following one opens a new connection
+   * to the domain name, which may not reach the DC, and stalls the
+   * search. */
+  ldap_set_option (ld, LDAP_OPT_REFERRALS, LDAP_OPT_OFF);
+
   struct timeval timeout = { 6, 0 };
   ldap_set_option (ld, LDAP_OPT_NETWORK_TIMEOUT, &timeout);
 
