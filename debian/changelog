@@ -1,11 +1,11 @@
-sambervise (0.12.0) UNRELEASED; urgency=medium
+sambervise (0.12.0) unstable; urgency=medium
 
   * Add a right-click menu on connections with Connect, Disconnect and Edit.
   * Fix a crash after connecting with a password.
   * Reconnect when the DC closes an idle connection.
   * Stop following LDAP referrals.
 
- -- Edward Murrell <edward@murrell.co.nz>  Sat, 21 Nov 2026 14:18:14 +1100
+ -- Edward Murrell <edward@murrell.co.nz>  Sat, 21 Nov 2026 18:51:52 +1100
 
 sambervise (0.11.0) unstable; urgency=medium
 
