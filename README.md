@@ -116,6 +116,8 @@ supported release on amd64 and arm64 when a `v*` tag is pushed.
 - [Users (detailed view)](docs/users2.webp)
 - [Groups panel](docs/groups1.webp)
 - [Computers panel](docs/computers1.webp)
+- [Domain password and lockout policy](docs/domain1.webp)
+- [Fine-grained password policies and FSMO roles](docs/domain2.webp)
 
 ## Kerberos authentication
 
