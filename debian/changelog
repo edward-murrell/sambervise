@@ -1,9 +1,9 @@
-sambervise (0.13.0) UNRELEASED; urgency=medium
+sambervise (0.13.0) unstable; urgency=medium
 
   * Add a Sites page to view, create, edit and delete sites and subnets.
   * Fix a crash when connecting without a connection name.
 
- -- Edward Murrell <edward@murrell.co.nz>  Sun, 22 Nov 2026 12:06:15 +1100
+ -- Edward Murrell <edward@murrell.co.nz>  Sun, 22 Nov 2026 14:25:41 +1100
 
 sambervise (0.12.0) unstable; urgency=medium
 
