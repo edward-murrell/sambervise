@@ -55,6 +55,10 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Sun Nov 22 2026 Edward Murrell <edward@murrell.co.nz> - 0.13.0-1
+- Add a Sites page to view, create, edit and delete sites and subnets.
+- Fix a crash when connecting without a connection name.
+
 * Sat Nov 21 2026 Edward Murrell <edward@murrell.co.nz> - 0.12.0-1
 - Add a right-click menu on connections with Connect, Disconnect and Edit.
 - Fix a crash after connecting with a password.

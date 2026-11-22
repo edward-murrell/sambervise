@@ -71,6 +71,7 @@ tests/
 - `backend/sbv-groups-backend.c` — group LDAP operations (list, add/remove members)
 - `backend/sbv-computers-backend.c` — computer LDAP operations (list `(objectClass=computer)`, enable/disable, update description and dNSHostName)
 - `backend/sbv-ou-backend.c` — OU operations (list OUs and containers in tree order, create, rename/describe, delete empty OUs) and `sbv_ou_move_object_async` for moving any object to a new parent
+- `backend/sbv-sites-backend.c` — sites and subnets under `CN=Sites` in the Configuration partition (list with each site's DCs, create, rename, delete with a no-DCs check, subnet create, site and description edits, delete)
 - `backend/sbv-dn.c` — pure DN string helpers (RFC 4514 escaping, split at unescaped comma, ancestry, display path); no LDAP handle
 - `backend/sbv-idmap-hints.c` — discovers POSIX UID/GID range hints. `SbvIdmapHints` struct merges per-profile range config (from `connections.ini`) with DC values read from `CN=ypservers,CN=ypServ30,CN=RpcServices,CN=System,<base>` (`msSFU30MaxUidNumber`/`msSFU30MaxGidNumber`). Used by upcoming UID/GID collision and auto-assignment features.
 
@@ -81,6 +82,7 @@ tests/
 - `model/sbv-group.c` — `SbvGroup` GObject
 - `model/sbv-ou.c` — `SbvOu` GObject (dn, name, description, kind OU/container/domain, isCriticalSystemObject, path from the domain root)
 - `model/sbv-computer.c` — `SbvComputer` GObject (computer accounts: dn, sam, cn, description, dNSHostName, OS attributes, UAC, pwdLastSet, servicePrincipalName, raw LDAP attrs)
+- `model/sbv-site.c` — `SbvSite` and `SbvSubnet` plain structs, plus subnet normalising, site name checks and sorting
 
 ### Authentication
 

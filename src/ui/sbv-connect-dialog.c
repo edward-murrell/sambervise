@@ -641,7 +641,9 @@ on_connect_done (GObject *source, GAsyncResult *result, gpointer user_data)
   g_assert (owned == conn);
   gtk_window_destroy (GTK_WINDOW (d->dialog));
 
-  cb (conn, saved_profile, data);
+  /* An unnamed profile isn't saved, but the window still needs its
+   * settings for the status bar and ID ranges. */
+  cb (conn, saved_profile ? saved_profile : profile, data);
   g_object_unref (owned);
   g_clear_object (&saved_profile);
   g_object_unref (profile);

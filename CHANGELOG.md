@@ -5,6 +5,20 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - Unreleased
+
+### Added
+- A Sites page lists each site with its DCs, and each subnet with the
+  site it maps to. Subnets with no site get a warning.
+- Create, rename and delete sites, and edit their descriptions. A site
+  can't be deleted while a DC still belongs to it.
+- Create and delete subnets, and change their site and description.
+  The subnet is checked before it goes to the DC.
+
+### Fixed
+- Connecting through Add Connection without a connection name crashed
+  the app.
+
 ## [0.12.0] - 2026-11-21
 
 ### Added

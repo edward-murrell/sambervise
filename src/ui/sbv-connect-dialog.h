@@ -7,13 +7,13 @@
 G_BEGIN_DECLS
 
 typedef void (*SbvConnectCallback) (SbvConnection *connection,
-                                    SbvProfile    *profile,  /* NULL if not saved */
+                                    SbvProfile    *profile,  /* in the store only if named */
                                     gpointer       user_data);
 
 /* Opens the "Add Connection" dialog.
  * If edit_profile is non-NULL the dialog is pre-populated for editing.
- * On success, calls callback with the new live connection and (if saved)
- * the profile that was written to the store. */
+ * On success, calls callback with the new live connection and the profile
+ * it used. The profile is saved to the store only when it has a name. */
 GtkWidget *sbv_connect_dialog_new (GtkWindow         *parent,
                                     GListStore        *profiles_store,
                                     SbvProfile        *edit_profile,

@@ -37,6 +37,7 @@ add_executable(sambervise
     model/sbv-search.c
     model/sbv-domain.c
     model/sbv-dns-record.c
+    model/sbv-site.c
     backend/sbv-connection.c
     backend/sbv-dns.c
     backend/sbv-profiles.c
@@ -54,6 +55,7 @@ add_executable(sambervise
     backend/sbv-domain-backend.c
     backend/sbv-pso-backend.c
     backend/sbv-dnszone-backend.c
+    backend/sbv-sites-backend.c
     ui/sbv-window.c
     ui/sbv-connect-dialog.c
     ui/sbv-password-dialog.c
@@ -72,6 +74,8 @@ add_executable(sambervise
     ui/sbv-policy-form.c
     ui/sbv-pso-dialog.c
     ui/sbv-dns-panel.c
+    ui/sbv-sites-panel.c
+    ui/sbv-site-dialog.c
     ui/sbv-create-ou-dialog.c
     ui/sbv-move-dialog.c
     ui/sbv-member-of.c
