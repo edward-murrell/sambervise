@@ -5,6 +5,31 @@ All notable changes to Sambervise are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - Unreleased
+
+### Added
+- Sambervise reads hostadmin's ID mapping record, which says how the
+  domain's Linux hosts turn users and groups into Unix IDs. Its range
+  becomes the UID and GID range when the connection sets none, so
+  Suggest picks numbers the hosts accept.
+- The status bar tooltip and Probe results show the record, or say why
+  an invalid record is ignored.
+- In a domain whose record says `rid`, the Users and Groups pages warn
+  that hosts ignore the UID and GID fields, and show the IDs hosts
+  really use.
+
+### Changed
+- The Users, Groups, Computers and Contacts lists are sorted by name,
+  ignoring case. So is the user list in a group's Add Member dialog.
+  They used to follow whatever order the DC returned.
+
+### Fixed
+- The next free UID and GID that ADUC's UNIX Attributes tab stores on
+  the DC are now found. Sambervise looked one level too high, so the
+  status bar and Probe never showed them.
+- Probe now says why it skipped the UID and GID ranges, such as when
+  the password field is empty, instead of leaving them out silently.
+
 ## [0.13.0] - 2026-11-22
 
 ### Added

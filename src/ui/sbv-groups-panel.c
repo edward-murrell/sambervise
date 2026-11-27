@@ -43,6 +43,7 @@ struct _SbvGroupsPanel {
   GtkWidget     *rfc_save_btn;
   GtkWidget     *rfc_error;
   GtkWidget     *rfc_gid_collision;    /* warning under gid entry */
+  GtkWidget     *rfc_idmap_note;       /* rid-domain note under the section title */
   guint          gid_check_timer;       /* g_timeout_add id for debounce */
   GtkWidget     *rfc_gid_suggest_btn;
   /* Cached idmap hints for the active connection. Loaded lazily. */
@@ -75,6 +76,8 @@ struct _SbvGroupsPanel {
 };
 
 G_DEFINE_TYPE (SbvGroupsPanel, sbv_groups_panel, GTK_TYPE_BOX)
+
+static void update_idmap_note (SbvGroupsPanel *self);
 
 enum { SIGNAL_MEMBERSHIP_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
@@ -225,6 +228,7 @@ on_row_selected (GtkListBox *lb, GtkListBoxRow *row, gpointer user_data)
   gtk_editable_set_text (GTK_EDITABLE (self->rfc_gid_entry), gid_str);
   g_free (gid_str);
   gtk_widget_set_visible (self->rfc_error, FALSE);
+  update_idmap_note (self);
 
   /* Cancel any in-flight collision debounce; the changed-handler will
    * rearm with the freshly-loaded value. */
@@ -500,6 +504,7 @@ on_add_dialog_users_loaded (GObject *source, GAsyncResult *result, gpointer user
     return;
   }
 
+  g_list_store_sort (store, sbv_user_compare_by_name, NULL);
   guint n = g_list_model_get_n_items (G_LIST_MODEL (store));
   for (guint i = 0; i < n; i++) {
     SbvUser   *user = g_list_model_get_item (G_LIST_MODEL (store), i);
@@ -707,6 +712,7 @@ on_group_hints_then_suggest (GObject *source, GAsyncResult *result,
 
   g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
   self->idmap_hints = hints;
+  update_idmap_note (self);
 
   group_suggest_with_hints (self);
   g_free (ctx);
@@ -1053,6 +1059,7 @@ on_groups_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
   while ((child = gtk_widget_get_first_child (self->list_box)) != NULL)
     gtk_list_box_remove (GTK_LIST_BOX (self->list_box), child);
 
+  g_list_store_sort (store, sbv_group_compare_by_name, NULL);
   guint          n        = g_list_model_get_n_items (G_LIST_MODEL (store));
   GtkListBoxRow *reselect = NULL;
 
@@ -1075,6 +1082,30 @@ on_groups_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
     gtk_list_box_select_row (GTK_LIST_BOX (self->list_box), reselect);
   else
     gtk_stack_set_visible_child_name (GTK_STACK (self->detail_stack), "none");
+}
+
+/* Shows or hides the note that a rid domain's hosts ignore the GID
+ * field, for the selected group. */
+static void
+update_idmap_note (SbvGroupsPanel *self)
+{
+  if (!self->rfc_idmap_note) return;
+  char *note = self->selected_group
+    ? sbv_idmap_hints_rid_note (self->idmap_hints, FALSE,
+                                sbv_group_get_rid (self->selected_group), -1)
+    : NULL;
+  gtk_label_set_text (GTK_LABEL (self->rfc_idmap_note), note ? note : "");
+  gtk_widget_set_visible (self->rfc_idmap_note, note != NULL);
+  g_free (note);
+}
+
+void
+sbv_groups_panel_set_idmap_hints (SbvGroupsPanel *self, const SbvIdmapHints *hints)
+{
+  g_return_if_fail (SBV_IS_GROUPS_PANEL (self));
+  g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
+  self->idmap_hints = sbv_idmap_hints_copy (hints);
+  update_idmap_note (self);
 }
 
 void
@@ -1468,6 +1499,13 @@ sbv_groups_panel_init (SbvGroupsPanel *self)
       gtk_label_set_xalign (GTK_LABEL (rfc_lbl), 0);
       gtk_widget_add_css_class (rfc_lbl, "heading");
       gtk_box_append (GTK_BOX (detail_box), rfc_lbl);
+
+      self->rfc_idmap_note = gtk_label_new ("");
+      gtk_label_set_xalign (GTK_LABEL (self->rfc_idmap_note), 0);
+      gtk_label_set_wrap (GTK_LABEL (self->rfc_idmap_note), TRUE);
+      gtk_widget_add_css_class (self->rfc_idmap_note, "warning");
+      gtk_widget_set_visible (self->rfc_idmap_note, FALSE);
+      gtk_box_append (GTK_BOX (detail_box), self->rfc_idmap_note);
     }
 
     {

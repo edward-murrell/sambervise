@@ -171,6 +171,16 @@ on_status_idmap_loaded (GObject *source, GAsyncResult *result, gpointer user_dat
     g_string_append_printf (s, "   ·   %s", h->source);
   gtk_label_set_text (GTK_LABEL (self->status_idmap_label), s->str);
   g_string_free (s, TRUE);
+
+  char *record = sbv_idmap_hints_describe_record (h);
+  char *tip    = g_strdup_printf ("hostadmin ID mapping record: %s",
+                                  record ? record : "none in this domain");
+  gtk_widget_set_tooltip_text (self->status_idmap_label, tip);
+  g_free (tip);
+  g_free (record);
+
+  sbv_users_panel_set_idmap_hints  (self->users_panel,  h);
+  sbv_groups_panel_set_idmap_hints (self->groups_panel, h);
   sbv_idmap_hints_free (h);
 }
 
@@ -592,6 +602,8 @@ on_refresh_action (GtkWidget *widget, const char *action_name, GVariant *param)
   sbv_sites_panel_load     (self->sites_panel,     self->conn);
   sbv_dns_panel_load       (self->dns_panel,       self->conn);
   sbv_ldap_panel_refresh   (self->ldap_panel);
+  sbv_idmap_hints_query_async (self->conn, self->active_profile, NULL,
+                               on_status_idmap_loaded, self);
   sbv_window_show_toast (self, "Reloaded from the server");
 }
 

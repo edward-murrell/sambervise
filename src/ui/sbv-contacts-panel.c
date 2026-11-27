@@ -543,6 +543,7 @@ on_contacts_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
   while ((child = gtk_widget_get_first_child (self->list_box)) != NULL)
     gtk_list_box_remove (GTK_LIST_BOX (self->list_box), child);
 
+  g_list_store_sort (store, sbv_contact_compare_by_name, NULL);
   guint n = g_list_model_get_n_items (G_LIST_MODEL (store));
   GtkListBoxRow *reselect = NULL;
 

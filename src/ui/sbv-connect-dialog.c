@@ -49,6 +49,7 @@ typedef struct {
   /* Edit-only mode — no LDAP connect on save; original_name is kept so a
    * rename can purge the old entry before upsert (which keys on name). */
   gboolean           edit_only;
+  const char        *probe_skip;     /* why the last probe didn't bind, or NULL */
   char              *original_name;
 } DialogData;
 
@@ -140,8 +141,13 @@ probe_render_result (DialogData *d, SbvProbeResult *res)
       g_free (s);
     }
     probe_append_row (d, "Source", h->source ?: "?");
+    char *record = sbv_idmap_hints_describe_record (h);
+    probe_append_row (d, "hostadmin record", record ? record : "None");
+    g_free (record);
   } else if (res->bind_error) {
     probe_append_row (d, "Idmap lookup", res->bind_error);
+  } else if (d->probe_skip) {
+    probe_append_row (d, "UID/GID ranges", d->probe_skip);
   }
 }
 
@@ -238,6 +244,14 @@ on_probe_clicked (GtkButton *btn, gpointer user_data)
       bind_profile = build_profile (d);
       bind_password = passwd;
     }
+  if (bind_profile)
+    d->probe_skip = NULL;
+  else if (!base_dn || !*base_dn)
+    d->probe_skip = "Not read. Enter a Base DN first.";
+  else if (!bind_dn || !*bind_dn)
+    d->probe_skip = "Not read. Enter a Bind DN first.";
+  else
+    d->probe_skip = "Not read. Enter the password to read them from the DC.";
 
   gtk_widget_set_visible (d->error_label, FALSE);
   gtk_widget_set_sensitive (d->probe_btn, FALSE);

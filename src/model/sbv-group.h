@@ -48,4 +48,8 @@ void        sbv_group_set_ldap_attrs   (SbvGroup *self, GHashTable *attrs);
  * primary group without a directory lookup. */
 const char *sbv_group_well_known_name (gint64 rid);
 
+/* Orders groups for the list the way they are shown: by its display name, or sAMAccountName when that is missing. A
+ * GCompareDataFunc for g_list_store_sort. */
+gint sbv_group_compare_by_name (gconstpointer a, gconstpointer b, gpointer user_data);
+
 G_END_DECLS

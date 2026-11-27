@@ -76,6 +76,7 @@ struct _SbvUsersPanel {
   GtkWidget     *rfc_save_btn;
   GtkWidget     *rfc_error;
   GtkWidget     *rfc_uid_collision; /* warning under uid entry */
+  GtkWidget     *rfc_idmap_note;    /* rid-domain note under the section title */
   GtkWidget     *rfc_gid_collision; /* warning under gid entry */
   guint          uid_check_timer;   /* g_timeout_add id for uid debounce */
   guint          gid_check_timer;   /* g_timeout_add id for gid debounce */
@@ -135,6 +136,8 @@ struct _SbvUsersPanel {
 };
 
 G_DEFINE_TYPE (SbvUsersPanel, sbv_users_panel, GTK_TYPE_BOX)
+
+static void update_idmap_note (SbvUsersPanel *self);
 
 enum { SIGNAL_MEMBERSHIP_CHANGED, N_SIGNALS };
 static guint signals[N_SIGNALS];
@@ -472,6 +475,7 @@ load_user_into_detail (SbvUsersPanel *self, SbvUser *user)
   gtk_editable_set_text (GTK_EDITABLE (self->rfc_home_entry),  home  ? home  : "");
   gtk_editable_set_text (GTK_EDITABLE (self->rfc_gecos_entry), gecos ? gecos : "");
   gtk_widget_set_visible (self->rfc_error, FALSE);
+  update_idmap_note (self);
 
   /* Cancel any in-flight collision debounce timers and clear the labels;
    * the changed-handlers below will rearm with the freshly-loaded values. */
@@ -861,6 +865,7 @@ on_hints_then_suggest (GObject *source, GAsyncResult *result,
 
   g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
   self->idmap_hints = hints;
+  update_idmap_note (self);
 
   suggest_with_hints (self, ctx->is_uid, ctx->entry, ctx->button);
   g_free (ctx);
@@ -1381,6 +1386,7 @@ on_users_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
   while ((child = gtk_widget_get_first_child (self->list_box)) != NULL)
     gtk_list_box_remove (GTK_LIST_BOX (self->list_box), child);
 
+  g_list_store_sort (store, sbv_user_compare_by_name, NULL);
   guint n = g_list_model_get_n_items (G_LIST_MODEL (store));
   GtkListBoxRow *reselect = NULL;
   GPtrArray     *many     = g_ptr_array_new ();
@@ -1420,6 +1426,31 @@ on_users_loaded (GObject *source, GAsyncResult *result, gpointer user_data)
 }
 
 /* ── Public API ─────────────────────────────────────────────────────────── */
+
+/* Shows or hides the note that a rid domain's hosts ignore the UID and
+ * GID fields, for the selected user. */
+static void
+update_idmap_note (SbvUsersPanel *self)
+{
+  if (!self->rfc_idmap_note) return;
+  char *note = self->selected_user
+    ? sbv_idmap_hints_rid_note (self->idmap_hints, TRUE,
+                                sbv_user_get_rid (self->selected_user),
+                                sbv_user_get_primary_group_id (self->selected_user))
+    : NULL;
+  gtk_label_set_text (GTK_LABEL (self->rfc_idmap_note), note ? note : "");
+  gtk_widget_set_visible (self->rfc_idmap_note, note != NULL);
+  g_free (note);
+}
+
+void
+sbv_users_panel_set_idmap_hints (SbvUsersPanel *self, const SbvIdmapHints *hints)
+{
+  g_return_if_fail (SBV_IS_USERS_PANEL (self));
+  g_clear_pointer (&self->idmap_hints, sbv_idmap_hints_free);
+  self->idmap_hints = sbv_idmap_hints_copy (hints);
+  update_idmap_note (self);
+}
 
 void
 sbv_users_panel_load (SbvUsersPanel *self, SbvConnection *conn)
@@ -2426,6 +2457,13 @@ sbv_users_panel_init (SbvUsersPanel *self)
     gtk_box_append (GTK_BOX (form),
                     gtk_separator_new (GTK_ORIENTATION_HORIZONTAL));
     gtk_box_append (GTK_BOX (form), make_section_label ("Unix Attributes (RFC2307)"));
+
+    self->rfc_idmap_note = gtk_label_new ("");
+    gtk_label_set_xalign (GTK_LABEL (self->rfc_idmap_note), 0);
+    gtk_label_set_wrap (GTK_LABEL (self->rfc_idmap_note), TRUE);
+    gtk_widget_add_css_class (self->rfc_idmap_note, "warning");
+    gtk_widget_set_visible (self->rfc_idmap_note, FALSE);
+    gtk_box_append (GTK_BOX (form), self->rfc_idmap_note);
 
     self->rfc_uid_entry = gtk_entry_new ();
     gtk_entry_set_placeholder_text (GTK_ENTRY (self->rfc_uid_entry), "UID number");

@@ -1,4 +1,5 @@
 #include <glib.h>
+#include <gio/gio.h>
 #include "model/sbv-search.h"
 #include "model/sbv-user.h"
 
@@ -51,12 +52,50 @@ test_password_expired (void)
   g_assert_false (sbv_user_password_expired (0x200, -1, MAX_AGE, NOW));
 }
 
+/* Names sort ignoring case, with a stable tie-break. */
+static void
+test_name_compare (void)
+{
+  g_assert_cmpint (sbv_name_compare ("alice", "Bob"), <, 0);
+  g_assert_cmpint (sbv_name_compare ("Bob", "alice"), >, 0);
+  g_assert_cmpint (sbv_name_compare ("bob", "Bob"), !=, 0);
+  g_assert_cmpint (sbv_name_compare (NULL, "a"), <, 0);
+  g_assert_cmpint (sbv_name_compare ("x", "x"), ==, 0);
+}
+
+/* Users sort by display name, falling back to cn when it is empty. */
+static void
+test_user_order (void)
+{
+  const char *display[] = { "zoe Young", NULL, "Adam Smith", "" };
+  const char *cn[]      = { "zyoung", "Mary Jones", "asmith", "Brian Lee" };
+  const char *want[]    = { "asmith", "Brian Lee", "Mary Jones", "zyoung" };
+  GListStore *store = g_list_store_new (SBV_TYPE_USER);
+  for (guint i = 0; i < G_N_ELEMENTS (cn); i++) {
+    SbvUser *u = sbv_user_new ();
+    sbv_user_set_cn (u, cn[i]);
+    sbv_user_set_sam (u, cn[i]);
+    if (display[i]) sbv_user_set_display_name (u, display[i]);
+    g_list_store_append (store, u);
+    g_object_unref (u);
+  }
+  g_list_store_sort (store, sbv_user_compare_by_name, NULL);
+  for (guint i = 0; i < G_N_ELEMENTS (want); i++) {
+    SbvUser *u = g_list_model_get_item (G_LIST_MODEL (store), i);
+    g_assert_cmpstr (sbv_user_get_cn (u), ==, want[i]);
+    g_object_unref (u);
+  }
+  g_object_unref (store);
+}
+
 int
 main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
   g_test_add_func ("/search/fold", test_fold);
   g_test_add_func ("/search/matches", test_matches);
+  g_test_add_func ("/search/name-compare", test_name_compare);
+  g_test_add_func ("/user/order", test_user_order);
   g_test_add_func ("/user/password-expired", test_password_expired);
   return g_test_run ();
 }

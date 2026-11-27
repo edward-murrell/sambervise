@@ -33,3 +33,16 @@ sbv_search_matches (const char *needle, const char *const *fields,
   }
   return FALSE;
 }
+
+gint
+sbv_name_compare (const char *a, const char *b)
+{
+  if (!a) a = "";
+  if (!b) b = "";
+  char *fa = g_utf8_casefold (a, -1);
+  char *fb = g_utf8_casefold (b, -1);
+  gint  c  = g_utf8_collate (fa, fb);
+  g_free (fa);
+  g_free (fb);
+  return c != 0 ? c : strcmp (a, b);
+}

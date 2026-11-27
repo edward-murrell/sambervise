@@ -6,6 +6,159 @@
 #include <sys/time.h>
 #include <string.h>
 
+/* ── SFU30 next-ID values ──────────────────────────────────────────────── */
+
+/* Raises `*hint` to the integer value of `attr` on `entry` when that is
+ * higher. Returns TRUE when the entry had the attribute. */
+static gboolean
+take_max (LDAP *ld, LDAPMessage *entry, const char *attr, gint64 *hint)
+{
+  struct berval **bv    = ldap_get_values_len (ld, entry, attr);
+  gboolean        found = FALSE;
+  if (bv && bv[0]) {
+    char  *s = g_strndup (bv[0]->bv_val, bv[0]->bv_len);
+    gint64 v = g_ascii_strtoll (s, NULL, 10);
+    g_free (s);
+    if (v > *hint) *hint = v;
+    found = TRUE;
+  }
+  ldap_value_free_len (bv);
+  return found;
+}
+
+/* Reads the ADUC next-ID values. Searches the ypservers container and
+ * everything under it, and keeps the highest value found. Returns TRUE
+ * when a value turned up. */
+static gboolean
+read_sfu30 (LDAP *ld, const char *base_dn, int timeout_s, SbvIdmapHints *hints)
+{
+  if (!ld || !base_dn || !*base_dn) return FALSE;
+
+  char *yp_dn = g_strdup_printf (
+    "CN=ypservers,CN=ypServ30,CN=RpcServices,CN=System,%s", base_dn);
+  char          *attrs[] = { (char *) "msSFU30MaxUidNumber",
+                             (char *) "msSFU30MaxGidNumber", NULL };
+  LDAPMessage   *result  = NULL;
+  struct timeval tv      = { timeout_s, 0 };
+  int rc = ldap_search_ext_s (ld, yp_dn, LDAP_SCOPE_SUBTREE,
+                              "(|(msSFU30MaxUidNumber=*)(msSFU30MaxGidNumber=*))",
+                              attrs, 0, NULL, NULL, &tv, LDAP_NO_LIMIT, &result);
+  g_free (yp_dn);
+
+  /* NO_SUCH_OBJECT is normal. Samba only makes the container with
+   * --use-rfc2307, and only ADUC fills in the values. */
+  gboolean found = FALSE;
+  if (rc == LDAP_SUCCESS && result) {
+    for (LDAPMessage *e = ldap_first_entry (ld, result); e;
+         e = ldap_next_entry (ld, e)) {
+      found |= take_max (ld, e, "msSFU30MaxUidNumber", &hints->next_uid_hint);
+      found |= take_max (ld, e, "msSFU30MaxGidNumber", &hints->next_gid_hint);
+    }
+  }
+  if (result) ldap_msgfree (result);
+  return found;
+}
+
+/* Reads and parses hostadmin's record, and applies its range where the
+ * profile set none. */
+static void
+read_record (LDAP *ld, const char *base_dn, int timeout_s, SbvIdmapHints *hints)
+{
+  char *dn = g_strdup_printf ("CN=%s,CN=System,%s", SBV_IDMAP_RECORD_RDN, base_dn);
+  char          *attrs[] = { (char *) "keywords", NULL };
+  LDAPMessage   *result  = NULL;
+  struct timeval tv      = { timeout_s, 0 };
+  int rc = ldap_search_ext_s (ld, dn, LDAP_SCOPE_BASE, "(objectClass=*)", attrs, 0,
+                              NULL, NULL, &tv, 1, &result);
+  g_free (dn);
+
+  LDAPMessage *entry = (rc == LDAP_SUCCESS && result) ? ldap_first_entry (ld, result) : NULL;
+  if (rc == LDAP_NO_SUCH_OBJECT || (rc == LDAP_SUCCESS && !entry)) {
+    hints->record_state = SBV_IDMAP_RECORD_NONE;
+  } else if (rc != LDAP_SUCCESS) {
+    hints->record_state = SBV_IDMAP_RECORD_UNREADABLE;
+    hints->record_error = g_strdup_printf ("Couldn't read it: %s", ldap_err2string (rc));
+  } else {
+    struct berval **bv  = ldap_get_values_len (ld, entry, "keywords");
+    int             n   = bv ? ldap_count_values_len (bv) : 0;
+    char          **kw  = g_new0 (char *, n + 1);
+    for (int i = 0; i < n; i++)
+      kw[i] = g_strndup (bv[i]->bv_val, bv[i]->bv_len);
+    ldap_value_free_len (bv);
+
+    char           *err = NULL;
+    SbvIdmapRecord *rec = sbv_idmap_record_parse ((const char * const *) kw, &err);
+    g_strfreev (kw);
+    if (rec) {
+      hints->record_state = SBV_IDMAP_RECORD_VALID;
+      hints->record       = rec;
+      if (!hints->uid_range_set) {
+        hints->uid_min = rec->low;
+        hints->uid_max = rec->high;
+      }
+      if (!hints->gid_range_set) {
+        hints->gid_min = rec->low;
+        hints->gid_max = rec->high;
+      }
+    } else {
+      hints->record_state = SBV_IDMAP_RECORD_INVALID;
+      hints->record_error = err;
+    }
+  }
+  if (result) ldap_msgfree (result);
+}
+
+/* Rewrites `hints->source` to say where the ranges and hints came from. */
+static void
+compose_source (SbvIdmapHints *hints, gboolean sfu30)
+{
+  gboolean  record = hints->record_state == SBV_IDMAP_RECORD_VALID;
+  GString  *s      = g_string_new (NULL);
+  if (hints->uid_range_set || hints->gid_range_set)
+    g_string_append (s, "profile config");
+  if (record && !(hints->uid_range_set && hints->gid_range_set))
+    g_string_append_printf (s, "%shostadmin record (%s)", s->len ? " + " : "",
+                            sbv_idmap_backend_name (hints->record->backend));
+  if (s->len == 0)
+    g_string_append (s, "defaults");
+  if (hints->record_state == SBV_IDMAP_RECORD_INVALID)
+    g_string_append (s, " (hostadmin record invalid)");
+  if (sfu30)
+    g_string_append (s, " + msSFU30 next IDs");
+  g_free (hints->source);
+  hints->source = g_string_free (s, FALSE);
+}
+
+void
+sbv_idmap_hints_read_dc (LDAP *ld, const char *base_dn, int timeout_s,
+                         SbvIdmapHints *hints)
+{
+  if (!ld || !base_dn || !*base_dn) return;
+  read_record (ld, base_dn, timeout_s, hints);
+  compose_source (hints, read_sfu30 (ld, base_dn, timeout_s, hints));
+}
+
+char *
+sbv_idmap_hints_describe_record (const SbvIdmapHints *hints)
+{
+  switch (hints->record_state) {
+  case SBV_IDMAP_RECORD_VALID: {
+    const SbvIdmapRecord *r = hints->record;
+    return g_strdup_printf ("%s, %" G_GINT64_FORMAT "–%" G_GINT64_FORMAT "%s%s",
+                            sbv_idmap_backend_name (r->backend), r->low, r->high,
+                            r->written_by ? ", written by " : "",
+                            r->written_by ? r->written_by : "");
+  }
+  case SBV_IDMAP_RECORD_INVALID:
+    return g_strdup_printf ("Invalid, so it's ignored. %s", hints->record_error);
+  case SBV_IDMAP_RECORD_UNREADABLE:
+    return g_strdup (hints->record_error);
+  case SBV_IDMAP_RECORD_NONE:
+  default:
+    return NULL;
+  }
+}
+
 /* ── Lifecycle ─────────────────────────────────────────────────────────── */
 
 SbvIdmapHints *
@@ -23,7 +176,20 @@ sbv_idmap_hints_free (SbvIdmapHints *self)
 {
   if (!self) return;
   g_free (self->source);
+  sbv_idmap_record_free (self->record);
+  g_free (self->record_error);
   g_free (self);
+}
+
+SbvIdmapHints *
+sbv_idmap_hints_copy (const SbvIdmapHints *self)
+{
+  if (!self) return NULL;
+  SbvIdmapHints *c = g_memdup2 (self, sizeof *self);
+  c->source       = g_strdup (self->source);
+  c->record       = sbv_idmap_record_copy (self->record);
+  c->record_error = g_strdup (self->record_error);
+  return c;
 }
 
 SbvIdmapHints *
@@ -41,7 +207,10 @@ sbv_idmap_hints_from_profile (SbvProfile *profile)
   h->uid_max = (uid_max >= 0) ? uid_max : SBV_IDMAP_DEFAULT_UID_MAX;
   h->gid_min = (gid_min >= 0) ? gid_min : SBV_IDMAP_DEFAULT_GID_MIN;
   h->gid_max = (gid_max >= 0) ? gid_max : SBV_IDMAP_DEFAULT_GID_MAX;
-  h->source  = g_strdup ("profile config / defaults");
+  h->uid_range_set = uid_min >= 0 || uid_max >= 0;
+  h->gid_range_set = gid_min >= 0 || gid_max >= 0;
+  h->source  = g_strdup (h->uid_range_set || h->gid_range_set
+                         ? "profile config" : "defaults");
   return h;
 }
 
@@ -76,44 +245,7 @@ query_thread (GTask *task, gpointer source, gpointer task_data,
     return;
   }
 
-  const char *base = sbv_connection_get_base_dn (conn);
-  /* Well-known SFU30 location for max-assigned UID/GID hints. */
-  char *yp_dn = g_strdup_printf (
-    "CN=ypservers,CN=ypServ30,CN=RpcServices,CN=System,%s", base);
-
-  const char *attrs[] = { "msSFU30MaxUidNumber", "msSFU30MaxGidNumber", NULL };
-  LDAPMessage    *result = NULL;
-  struct timeval  tv     = { 10, 0 };
-
-  int rc = ldap_search_ext_s (ld, yp_dn, LDAP_SCOPE_BASE,
-                               "(objectClass=*)", (char **) attrs, 0,
-                               NULL, NULL, &tv, 1, &result);
-  g_free (yp_dn);
-
-  /* NO_SUCH_OBJECT is normal — many Samba 4 installs don't populate this. */
-  if (rc == LDAP_SUCCESS && result) {
-    LDAPMessage *entry = ldap_first_entry (ld, result);
-    if (entry) {
-      struct berval **bv;
-
-      bv = ldap_get_values_len (ld, entry, "msSFU30MaxUidNumber");
-      if (bv && bv[0])
-        d->base->next_uid_hint = g_ascii_strtoll (bv[0]->bv_val, NULL, 10);
-      ldap_value_free_len (bv);
-
-      bv = ldap_get_values_len (ld, entry, "msSFU30MaxGidNumber");
-      if (bv && bv[0])
-        d->base->next_gid_hint = g_ascii_strtoll (bv[0]->bv_val, NULL, 10);
-      ldap_value_free_len (bv);
-
-      /* If we found anything, update source attribution. */
-      if (d->base->next_uid_hint >= 0 || d->base->next_gid_hint >= 0) {
-        g_free (d->base->source);
-        d->base->source = g_strdup ("msSFU30 + profile config");
-      }
-    }
-  }
-  if (result) ldap_msgfree (result);
+  sbv_idmap_hints_read_dc (ld, sbv_connection_get_base_dn (conn), 10, d->base);
   sbv_connection_release_ldap (conn);
 
   /* Hand ownership of the hints to the task; clear our pointer so the
@@ -146,4 +278,41 @@ sbv_idmap_hints_query_finish (SbvConnection *conn,
 {
   (void) conn;
   return g_task_propagate_pointer (G_TASK (result), error);
+}
+
+/* Appends "UID 11104" style text, or says the ID falls outside the range. */
+static void
+append_id (GString *s, const SbvIdmapRecord *r, const char *label, gint64 rid)
+{
+  gint64 id = sbv_idmap_record_rid_to_id (r, rid);
+  if (rid < 0)
+    g_string_append_printf (s, "an unknown %s", label);
+  else if (id < 0)
+    g_string_append_printf (s, "no %s, as its RID %" G_GINT64_FORMAT
+                            " is outside the range", label, rid);
+  else
+    g_string_append_printf (s, "%s %" G_GINT64_FORMAT, label, id);
+}
+
+char *
+sbv_idmap_hints_rid_note (const SbvIdmapHints *hints, gboolean is_user,
+                          gint64 rid, gint64 primary_rid)
+{
+  if (!hints || hints->record_state != SBV_IDMAP_RECORD_VALID
+      || hints->record->backend != SBV_IDMAP_BACKEND_RID)
+    return NULL;
+
+  const SbvIdmapRecord *r = hints->record;
+  GString              *s = g_string_new (NULL);
+  g_string_append_printf (s, "hostadmin's record says this domain's hosts work out "
+                          "IDs from SIDs (rid), so they ignore %s here. ",
+                          is_user ? "these numbers" : "this number");
+  g_string_append (s, is_user ? "Hosts give this user " : "Hosts give this group ");
+  append_id (s, r, is_user ? "UID" : "GID", rid);
+  if (is_user) {
+    g_string_append (s, " and ");
+    append_id (s, r, "primary GID", primary_rid);
+  }
+  g_string_append_c (s, '.');
+  return g_string_free (s, FALSE);
 }

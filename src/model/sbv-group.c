@@ -1,4 +1,5 @@
 #include "sbv-group.h"
+#include "sbv-search.h"
 
 struct _SbvGroup {
   GObject  parent;
@@ -122,4 +123,18 @@ sbv_group_well_known_name (gint64 rid)
   case 521: return "Read-only Domain Controllers";
   default:  return NULL;
   }
+}
+
+gint
+sbv_group_compare_by_name (gconstpointer a, gconstpointer b, gpointer user_data)
+{
+  (void) user_data;
+  SbvGroup *x = (SbvGroup *) a;
+  SbvGroup *y = (SbvGroup *) b;
+  const char *ta = sbv_group_get_display_name (x);
+  const char *tb = sbv_group_get_display_name (y);
+  if (!ta) ta = sbv_group_get_sam (x);
+  if (!tb) tb = sbv_group_get_sam (y);
+  gint c = sbv_name_compare (ta, tb);
+  return c != 0 ? c : sbv_name_compare (sbv_group_get_sam (x), sbv_group_get_sam (y));
 }

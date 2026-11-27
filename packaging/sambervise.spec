@@ -55,6 +55,12 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/au.com.codefoundation
 %{_docdir}/%{name}/CHANGELOG.md
 
 %changelog
+* Fri Nov 27 2026 Edward Murrell <edward@murrell.co.nz> - 0.14.0-1
+- Read hostadmin's ID mapping record for UID and GID ranges.
+- Warn on rid domains that hosts ignore uidNumber and gidNumber.
+- Find the next free UID and GID that ADUC stores on the DC.
+- Sort the Users, Groups, Computers and Contacts lists by name.
+
 * Sun Nov 22 2026 Edward Murrell <edward@murrell.co.nz> - 0.13.0-1
 - Add a Sites page to view, create, edit and delete sites and subnets.
 - Fix a crash when connecting without a connection name.

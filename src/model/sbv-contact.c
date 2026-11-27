@@ -1,4 +1,5 @@
 #include "sbv-contact.h"
+#include "sbv-search.h"
 
 struct _SbvContact {
   GObject  parent;
@@ -117,4 +118,18 @@ sbv_contact_set_ldap_attrs (SbvContact *self, GHashTable *attrs)
 {
   g_clear_pointer (&self->ldap_attrs, g_hash_table_unref);
   self->ldap_attrs = attrs;
+}
+
+gint
+sbv_contact_compare_by_name (gconstpointer a, gconstpointer b, gpointer user_data)
+{
+  (void) user_data;
+  SbvContact *x = (SbvContact *) a;
+  SbvContact *y = (SbvContact *) b;
+  const char *ta = sbv_contact_get_display_name (x);
+  const char *tb = sbv_contact_get_display_name (y);
+  if (!ta || !*ta) ta = sbv_contact_get_cn (x);
+  if (!tb || !*tb) tb = sbv_contact_get_cn (y);
+  gint c = sbv_name_compare (ta, tb);
+  return c != 0 ? c : sbv_name_compare (sbv_contact_get_dn (x), sbv_contact_get_dn (y));
 }

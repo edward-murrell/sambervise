@@ -1,4 +1,5 @@
 #include "sbv-computer.h"
+#include "sbv-search.h"
 
 struct _SbvComputer {
   GObject  parent;
@@ -115,3 +116,17 @@ const char * const *sbv_computer_get_member_of (SbvComputer *self) { return (con
 gint  sbv_computer_get_primary_group_id (SbvComputer *self) { return self->primary_group_id; }
 void  sbv_computer_set_member_of        (SbvComputer *self, char **dns) { g_strfreev (self->member_of); self->member_of = dns; }
 void  sbv_computer_set_primary_group_id (SbvComputer *self, gint rid) { self->primary_group_id = rid; }
+
+gint
+sbv_computer_compare_by_name (gconstpointer a, gconstpointer b, gpointer user_data)
+{
+  (void) user_data;
+  SbvComputer *x = (SbvComputer *) a;
+  SbvComputer *y = (SbvComputer *) b;
+  const char *ta = sbv_computer_get_cn (x);
+  const char *tb = sbv_computer_get_cn (y);
+  if (!ta) ta = sbv_computer_get_sam (x);
+  if (!tb) tb = sbv_computer_get_sam (y);
+  gint c = sbv_name_compare (ta, tb);
+  return c != 0 ? c : sbv_name_compare (sbv_computer_get_sam (x), sbv_computer_get_sam (y));
+}

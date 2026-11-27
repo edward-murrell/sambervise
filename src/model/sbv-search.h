@@ -16,4 +16,9 @@ gboolean  sbv_search_matches (const char        *needle,
                               const char *const *fields,
                               gsize              n_fields);
 
+/* Orders two names for display: by Unicode collation, ignoring case,
+ * then byte order so the result is stable. NULL sorts as "". */
+gint      sbv_name_compare   (const char *a,
+                              const char *b);
+
 G_END_DECLS

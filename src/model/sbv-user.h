@@ -92,6 +92,9 @@ const char * const *sbv_user_get_member_of        (SbvUser *self);
 gint                sbv_user_get_primary_group_id (SbvUser *self);
 void                sbv_user_set_member_of        (SbvUser *self, char **dns);
 void                sbv_user_set_primary_group_id (SbvUser *self, gint rid);
+/* The user's own RID, the last part of its objectSid, or -1. */
+gint64              sbv_user_get_rid              (SbvUser *self);
+void                sbv_user_set_rid              (SbvUser *self, gint64 rid);
 /* The DN of the fine-grained password policy that covers the user
  * (msDS-ResultantPSO), or NULL when the domain policy applies. */
 const char *sbv_user_get_resultant_pso    (SbvUser *self);
@@ -121,5 +124,9 @@ char       *sbv_user_template_path       (const char *path,
 /* Raw LDAP attributes — GHashTable<char*,GStrv>; takes/returns ownership */
 GHashTable *sbv_user_get_ldap_attrs      (SbvUser *self);
 void        sbv_user_set_ldap_attrs      (SbvUser *self, GHashTable *attrs);
+
+/* Orders users for the list the way they are shown: by its display name, or cn when that is empty, then sAMAccountName. A
+ * GCompareDataFunc for g_list_store_sort. */
+gint sbv_user_compare_by_name (gconstpointer a, gconstpointer b, gpointer user_data);
 
 G_END_DECLS

@@ -47,4 +47,8 @@ void                sbv_computer_set_primary_group_id (SbvComputer *self, gint r
 GHashTable *sbv_computer_get_ldap_attrs (SbvComputer *self);
 void        sbv_computer_set_ldap_attrs (SbvComputer *self, GHashTable *attrs);
 
+/* Orders computers for the list the way they are shown: by its cn, or sAMAccountName when that is missing. A
+ * GCompareDataFunc for g_list_store_sort. */
+gint sbv_computer_compare_by_name (gconstpointer a, gconstpointer b, gpointer user_data);
+
 G_END_DECLS

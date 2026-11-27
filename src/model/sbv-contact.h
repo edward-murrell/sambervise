@@ -54,4 +54,8 @@ void sbv_contact_set_country          (SbvContact *self, const char *v);
 GHashTable *sbv_contact_get_ldap_attrs (SbvContact *self);
 void        sbv_contact_set_ldap_attrs (SbvContact *self, GHashTable *attrs);
 
+/* Orders contacts for the list the way they are shown: by its display name, or cn when that is empty. A
+ * GCompareDataFunc for g_list_store_sort. */
+gint sbv_contact_compare_by_name (gconstpointer a, gconstpointer b, gpointer user_data);
+
 G_END_DECLS

@@ -1,4 +1,5 @@
 #include "sbv-users-backend.h"
+#include "../model/sbv-idmap-record.h"
 #include "../sbv-error.h"
 #include "sbv-dn.h"
 
@@ -95,7 +96,7 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
     /* Windows profile */
     "homeDirectory", "homeDrive", "scriptPath", "profilePath",
     /* Group membership */
-    "memberOf", "primaryGroupID",
+    "memberOf", "primaryGroupID", "objectSid",
     /* Fine-grained password policy, computed by the DC */
     "msDS-ResultantPSO",
     NULL
@@ -200,6 +201,11 @@ list_thread (GTask *task, gpointer source, gpointer task_data,
       }
       sbv_user_set_primary_group_id (user,
           (gint) entry_int64 (ld, entry, "primaryGroupID", -1));
+      bv = ldap_get_values_len (ld, entry, "objectSid");
+      if (bv && bv[0])
+        sbv_user_set_rid (user, sbv_sid_rid ((const guchar *) bv[0]->bv_val,
+                                             bv[0]->bv_len));
+      ldap_value_free_len (bv);
 
       /* RFC2307 / POSIX attributes */
       bv = ldap_get_values_len (ld, entry, "uidNumber");

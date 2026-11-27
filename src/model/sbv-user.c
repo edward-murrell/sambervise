@@ -1,4 +1,5 @@
 #include "sbv-user.h"
+#include "sbv-search.h"
 
 #include <string.h>
 
@@ -29,6 +30,7 @@ struct _SbvUser {
   gboolean    password_expired;
   char      **member_of;        /* memberOf DNs, owned */
   gint        primary_group_id; /* RID; -1 = not set */
+  gint64      rid;              /* own RID from objectSid; -1 = unknown */
   char       *resultant_pso;    /* msDS-ResultantPSO DN, or NULL */
   /* Windows profile */
   char       *home_directory;
@@ -75,6 +77,7 @@ sbv_user_init (SbvUser *self)
   self->account_expires = G_MAXINT64;
   self->uid_number      = -1;
   self->primary_group_id = -1;
+  self->rid = -1;
   self->gid_number      = -1;
 }
 
@@ -176,6 +179,8 @@ const char * const *sbv_user_get_member_of (SbvUser *self) { return (const char 
 gint  sbv_user_get_primary_group_id (SbvUser *self) { return self->primary_group_id; }
 void  sbv_user_set_member_of        (SbvUser *self, char **dns) { g_strfreev (self->member_of); self->member_of = dns; }
 void  sbv_user_set_primary_group_id (SbvUser *self, gint rid) { self->primary_group_id = rid; }
+gint64 sbv_user_get_rid (SbvUser *self) { return self->rid; }
+void   sbv_user_set_rid (SbvUser *self, gint64 rid) { self->rid = rid; }
 
 /* Resultant password policy accessors */
 const char *sbv_user_get_resultant_pso (SbvUser *self) { return self->resultant_pso; }
@@ -298,4 +303,18 @@ sbv_user_clean_diagnostic (const char *diag)
   char *out = g_strstrip (g_strdup (p));
   out[0] = g_ascii_toupper (out[0]);
   return out;
+}
+
+gint
+sbv_user_compare_by_name (gconstpointer a, gconstpointer b, gpointer user_data)
+{
+  (void) user_data;
+  SbvUser *x = (SbvUser *) a;
+  SbvUser *y = (SbvUser *) b;
+  const char *ta = sbv_user_get_display_name (x);
+  const char *tb = sbv_user_get_display_name (y);
+  if (!ta || !*ta) ta = sbv_user_get_cn (x);
+  if (!tb || !*tb) tb = sbv_user_get_cn (y);
+  gint c = sbv_name_compare (ta, tb);
+  return c != 0 ? c : sbv_name_compare (sbv_user_get_sam (x), sbv_user_get_sam (y));
 }

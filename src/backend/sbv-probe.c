@@ -144,38 +144,7 @@ fetch_idmap (LDAP *ld, SbvProfile *profile)
   const char    *base  = sbv_profile_get_base_dn (profile);
   if (!base || !*base) return hints;
 
-  char *yp_dn = g_strdup_printf (
-    "CN=ypservers,CN=ypServ30,CN=RpcServices,CN=System,%s", base);
-
-  const char *attrs[] = { "msSFU30MaxUidNumber", "msSFU30MaxGidNumber", NULL };
-  LDAPMessage    *result = NULL;
-  struct timeval  tv     = { 6, 0 };
-  int rc = ldap_search_ext_s (ld, yp_dn, LDAP_SCOPE_BASE,
-                               "(objectClass=*)", (char **) attrs, 0,
-                               NULL, NULL, &tv, 1, &result);
-  g_free (yp_dn);
-
-  if (rc == LDAP_SUCCESS && result) {
-    LDAPMessage *entry = ldap_first_entry (ld, result);
-    if (entry) {
-      struct berval **bv;
-      bv = ldap_get_values_len (ld, entry, "msSFU30MaxUidNumber");
-      if (bv && bv[0])
-        hints->next_uid_hint = g_ascii_strtoll (bv[0]->bv_val, NULL, 10);
-      ldap_value_free_len (bv);
-
-      bv = ldap_get_values_len (ld, entry, "msSFU30MaxGidNumber");
-      if (bv && bv[0])
-        hints->next_gid_hint = g_ascii_strtoll (bv[0]->bv_val, NULL, 10);
-      ldap_value_free_len (bv);
-
-      if (hints->next_uid_hint >= 0 || hints->next_gid_hint >= 0) {
-        g_free (hints->source);
-        hints->source = g_strdup ("msSFU30 + profile config");
-      }
-    }
-  }
-  if (result) ldap_msgfree (result);
+  sbv_idmap_hints_read_dc (ld, base, 6, hints);
   return hints;
 }
 

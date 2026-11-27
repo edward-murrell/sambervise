@@ -38,6 +38,7 @@ add_executable(sambervise
     model/sbv-domain.c
     model/sbv-dns-record.c
     model/sbv-site.c
+    model/sbv-idmap-record.c
     backend/sbv-connection.c
     backend/sbv-dns.c
     backend/sbv-profiles.c
